@@ -519,7 +519,7 @@ svg {
 }
 
 .composer {
-  transition: opacity 0.14s ease, transform 0.14s ease;
+  transition: opacity 0.14s ease, transform 0.14s ease, visibility 0s;
 }
 
 .composer-tools {
@@ -576,10 +576,18 @@ svg {
 }
 
 /* while a text is dragged or rotated the field steps aside */
+/* while something is dragged or rotated the bar gets fully out of the way */
 .composer.away {
   opacity: 0;
-  transform: translateY(14px);
+  visibility: hidden;
+  transform: translateY(calc(100% + 40px));
   pointer-events: none;
+  transition: opacity 0.12s ease, transform 0.12s ease, visibility 0s 0.12s;
+}
+
+/* the edit bar replaces the tool dock while a text or a picked-up mark is edited */
+.app.editing .bar-bottom {
+  visibility: hidden;
 }
 
 .text-hint {

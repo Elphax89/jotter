@@ -1,4 +1,5 @@
 import {
+  drawMark,
   drawMarks,
   drawSegment,
   drawShape,
@@ -9,11 +10,14 @@ import {
   grow,
   retext,
   setStrokeStyle,
+  hitMark,
+  markFrame,
   shapeBox,
   textBBox,
+  transformMark,
   union,
 } from "./render";
-import { OPEN_SHAPES, type BBox, type Mark, type ShapeKind, type Sheet, type TextDraft, type View } from "./types";
+import { OPEN_SHAPES, type BBox, type Mark, type Selection, type ShapeKind, type Sheet, type TextDraft, type View } from "./types";
 
 type Op =
   | { t: "add"; m: Mark }
@@ -433,6 +437,7 @@ export class Board {
   private preview:
     | { k: "shape"; kind: ShapeKind; x1: number; y1: number; x2: number; y2: number; c: string; w: number; f: boolean }
     | ({ k: "text" } & TextDraft)
+    | { k: "sel"; sel: Selection }
     | { k: "ring"; x: number; y: number; r: number }
     | null = null;
 
@@ -460,23 +465,14 @@ export class Board {
   /** A placed text being edited: hidden from the ink layer while its draft is shown on the overlay. */
   private editing: { i: number; mark: Mark } | null = null;
 
+  /** a placed text is picked up */
   get isEditingText() {
-    return this.editing !== null;
+    return this.editing?.mark.k === "text";
   }
 
-  /** Index of the topmost text under a screen point, or -1. */
-  hitText(sx: number, sy: number): number {
-    const [wx, wy] = this.toWorld(sx, sy);
-    const slop = 8 / this.view.z;
-    const marks = this.sheet.marks;
-    for (let i = marks.length - 1; i >= 0; i--) {
-      const m = marks[i];
-      if (m.k !== "text") continue;
-      if (this.editing?.mark === m) continue;
-      if (wx < m.b.x0 - slop || wx > m.b.x1 + slop || wy < m.b.y0 - slop || wy > m.b.y1 + slop) continue;
-      if (this.inText(m.x, m.y, m.t, m.s, m.r ?? 0, wx, wy, slop)) return i;
-    }
-    return -1;
+  /** any placed mark is picked up */
+  get isEditing() {
+    return this.editing !== null;
   }
 
   private inText(x: number, y: number, t: string, s: number, r: number, wx: number, wy: number, pad: number) {
@@ -488,10 +484,27 @@ export class Board {
     return Math.abs(lx) <= w / 2 + pad && Math.abs(ly) <= h / 2 + pad;
   }
 
-  /** Screen bounding rect of a placed text, for positioning hints. */
+  /** Index of the topmost mark (not eraser, not the one being edited) under a screen point, or -1. */
+  hitMark(sx: number, sy: number): number {
+    const [wx, wy] = this.toWorld(sx, sy);
+    const slop = 10 / this.view.z;
+    const marks = this.sheet.marks;
+    for (let i = marks.length - 1; i >= 0; i--) {
+      const m = marks[i];
+      if (this.editing?.mark === m) continue;
+      if (hitMark(m, wx, wy, slop)) return i;
+    }
+    return -1;
+  }
+
+  isText(i: number) {
+    return this.sheet.marks[i]?.k === "text";
+  }
+
+  /** Screen bounding rect of a placed mark, for positioning hints. */
   textScreenRect(i: number): { x: number; y: number; w: number; h: number } | null {
     const m = this.sheet.marks[i];
-    if (!m || m.k !== "text") return null;
+    if (!m) return null;
     const v = this.view;
     return { x: m.b.x0 * v.z + v.x, y: m.b.y0 * v.z + v.y, w: (m.b.x1 - m.b.x0) * v.z, h: (m.b.y1 - m.b.y0) * v.z };
   }
@@ -505,7 +518,79 @@ export class Board {
     return { x: m.x, y: m.y, r: m.r ?? 0, t: m.t, c: m.c, s: m.s };
   }
 
-  /** Put the picked-up text back untouched. */
+  /** Pick up a stroke or shape: it leaves the ink layer and is shown on the overlay until committed. */
+  beginSelect(i: number): Selection | null {
+    const m = this.sheet.marks[i];
+    if (!m || m.k === "text" || (m.k === "pen" && m.e)) return null;
+    this.editing = { i, mark: m };
+    this.fullRender();
+    return { frame: markFrame(m), dx: 0, dy: 0, r: 0, k: 1, c: m.c };
+  }
+
+  /** Centre, angle, padded half size and handle side of a selection on screen. */
+  private selGeom(sel: Selection) {
+    const f = sel.frame;
+    const u = 1 / this.view.z;
+    const cx = f.px + sel.dx;
+    const cy = f.py + sel.dy;
+    const pad = 8 * u;
+    return {
+      cx,
+      cy,
+      a: f.a0 + sel.r,
+      ew: Math.max(f.hw * sel.k, 10 * u) + pad,
+      eh: Math.max(f.hh * sel.k, 10 * u) + pad,
+      side: cy * this.view.z + this.view.y < 110 ? 1 : -1,
+      u,
+    };
+  }
+
+  previewSelection(sel: Selection) {
+    this.preview = { k: "sel", sel };
+    this.renderOverlay();
+  }
+
+  hitSelection(sel: Selection, sx: number, sy: number): "rotate" | "body" | null {
+    const [wx, wy] = this.toWorld(sx, sy);
+    const g = this.selGeom(sel);
+    const dist = g.eh + 30 * g.u;
+    const hx = g.cx - Math.sin(g.a) * g.side * dist;
+    const hy = g.cy + Math.cos(g.a) * g.side * dist;
+    if (Math.hypot(wx - hx, wy - hy) <= 24 * g.u) return "rotate";
+    const dx = wx - g.cx;
+    const dy = wy - g.cy;
+    const lx = dx * Math.cos(-g.a) - dy * Math.sin(-g.a);
+    const ly = dx * Math.sin(-g.a) + dy * Math.cos(-g.a);
+    const slop = 12 * g.u;
+    return Math.abs(lx) <= g.ew + slop && Math.abs(ly) <= g.eh + slop ? "body" : null;
+  }
+
+  /** Extra rotation that points the selection's handle at screen point (sx, sy). */
+  selAngle(sel: Selection, sx: number, sy: number): number {
+    const [wx, wy] = this.toWorld(sx, sy);
+    const g = this.selGeom(sel);
+    return snapAngle(Math.atan2(wy - g.cy, wx - g.cx) + (g.side === -1 ? Math.PI / 2 : -Math.PI / 2)) - sel.frame.a0;
+  }
+
+  /** Store what was done to the picked-up mark (or remove it). */
+  commitSelection(sel: Selection, remove = false) {
+    const ed = this.editing;
+    this.editing = null;
+    this.preview = null;
+    if (!ed) return this.renderOverlay();
+    if (remove) {
+      this.sheet.marks.splice(ed.i, 1);
+      this.push({ t: "del", i: ed.i, m: ed.mark });
+    } else if (sel.dx || sel.dy || sel.r || sel.k !== 1 || sel.c !== ed.mark.c) {
+      const f = sel.frame;
+      const to = transformMark(ed.mark, f.px, f.py, sel.dx, sel.dy, sel.r, sel.k, sel.c);
+      this.sheet.marks[ed.i] = to;
+      this.push({ t: "edit", i: ed.i, from: ed.mark, to });
+    }
+    this.fullRender();
+  }
+
+  /** Put the picked-up mark back untouched. */
   cancelEdit() {
     if (!this.editing) return;
     this.editing = null;
@@ -538,12 +623,7 @@ export class Board {
   angleTo(d: TextDraft, sx: number, sy: number): number {
     const [wx, wy] = this.toWorld(sx, sy);
     const { w, h } = draftBox(d);
-    let r = Math.atan2(wy - (d.y + h / 2), wx - (d.x + w / 2)) + (this.handleSide(d) === -1 ? Math.PI / 2 : -Math.PI / 2);
-    // soft snap to 15° steps near upright/right angles
-    const step = Math.PI / 12;
-    const near = Math.round(r / step) * step;
-    if (Math.abs(r - near) < (3 * Math.PI) / 180) r = near;
-    return Math.atan2(Math.sin(r), Math.cos(r));
+    return snapAngle(Math.atan2(wy - (d.y + h / 2), wx - (d.x + w / 2)) + (this.handleSide(d) === -1 ? Math.PI / 2 : -Math.PI / 2));
   }
 
   /** Text being placed or edited: dashed field, blinking caret, rotate handle. */
@@ -629,7 +709,6 @@ export class Board {
       const u = 1 / v.z;
       const { w, h } = draftBox(p);
       const pad = 6 * u;
-      const blue = "#0a84ff";
       ctx.translate(p.x + w / 2, p.y + h / 2);
       ctx.rotate(p.r);
       if (p.t) {
@@ -637,45 +716,30 @@ export class Board {
         drawText(ctx, 0, 0, p.t, p.c, p.s);
         ctx.translate(w / 2, h / 2);
       }
-      // Dashed field: where the text will land.
-      ctx.lineWidth = 1.5 * u;
-      ctx.setLineDash([5 * u, 4 * u]);
-      ctx.strokeStyle = blue;
-      ctx.beginPath();
-      ctx.rect(-w / 2 - pad, -h / 2 - pad, w + 2 * pad, h + 2 * pad);
-      ctx.stroke();
-      ctx.setLineDash([]);
       if (this.caretOn) {
-        ctx.fillStyle = blue;
+        ctx.fillStyle = "#0a84ff";
         const cx = p.t ? w / 2 + u : -w / 2 + 2 * u;
         ctx.fillRect(cx, -h / 2, Math.max(2 * u, p.s * 0.06), p.s * 1.2);
       }
-      // Rotate handle on a stem, on the side with room.
-      const side = this.handleSide(p);
-      const edge = side * (h / 2 + pad);
-      const hy = side * (h / 2 + pad + 30 * u);
-      ctx.lineWidth = 1.5 * u;
-      ctx.beginPath();
-      ctx.moveTo(0, edge);
-      ctx.lineTo(0, hy);
-      ctx.stroke();
-      ctx.fillStyle = blue;
-      ctx.beginPath();
-      ctx.arc(0, hy, 12 * u, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.strokeStyle = "#fff";
-      ctx.lineWidth = 2 * u;
-      ctx.beginPath();
-      ctx.arc(0, hy, 5.5 * u, -Math.PI * 0.15, Math.PI * 1.45);
-      ctx.stroke();
-      ctx.fillStyle = "#fff";
-      ctx.beginPath();
-      const ax = 5.5 * u * Math.cos(-Math.PI * 0.15);
-      const ay = hy + 5.5 * u * Math.sin(-Math.PI * 0.15);
-      ctx.moveTo(ax - 3.5 * u, ay - 1 * u);
-      ctx.lineTo(ax + 3.5 * u, ay - 1 * u);
-      ctx.lineTo(ax, ay + 4 * u);
-      ctx.fill();
+      drawFrame(ctx, w / 2 + pad, h / 2 + pad, this.handleSide(p), u);
+    } else if (p.k === "sel") {
+      const sel = p.sel;
+      const ed = this.editing;
+      if (ed) {
+        const f = sel.frame;
+        ctx.save();
+        ctx.translate(f.px + sel.dx, f.py + sel.dy);
+        ctx.rotate(sel.r);
+        ctx.scale(sel.k, sel.k);
+        ctx.translate(-f.px, -f.py);
+        drawMark(ctx, { ...ed.mark, c: sel.c } as Mark);
+        ctx.restore();
+        ctx.globalCompositeOperation = "source-over";
+      }
+      const g = this.selGeom(sel);
+      ctx.translate(g.cx, g.cy);
+      ctx.rotate(g.a);
+      drawFrame(ctx, g.ew, g.eh, g.side, g.u);
     } else {
       ctx.lineWidth = 1.5 / v.z;
       ctx.strokeStyle = "rgba(128,128,128,.9)";
@@ -688,6 +752,48 @@ export class Board {
   get size() {
     return { w: this.cssW, h: this.cssH };
   }
+}
+
+/** Soft snap to 15° steps, normalised to (−π, π]. */
+function snapAngle(r: number) {
+  const step = Math.PI / 12;
+  const near = Math.round(r / step) * step;
+  if (Math.abs(r - near) < (3 * Math.PI) / 180) r = near;
+  return Math.atan2(Math.sin(r), Math.cos(r));
+}
+
+/** Dashed box with a rotate handle, in a frame already translated to the centre and rotated. */
+function drawFrame(ctx: CanvasRenderingContext2D, ew: number, eh: number, side: number, u: number) {
+  const blue = "#0a84ff";
+  ctx.lineWidth = 1.5 * u;
+  ctx.setLineDash([5 * u, 4 * u]);
+  ctx.strokeStyle = blue;
+  ctx.beginPath();
+  ctx.rect(-ew, -eh, 2 * ew, 2 * eh);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  const hy = side * (eh + 30 * u);
+  ctx.beginPath();
+  ctx.moveTo(0, side * eh);
+  ctx.lineTo(0, hy);
+  ctx.stroke();
+  ctx.fillStyle = blue;
+  ctx.beginPath();
+  ctx.arc(0, hy, 12 * u, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = "#fff";
+  ctx.lineWidth = 2 * u;
+  ctx.beginPath();
+  ctx.arc(0, hy, 5.5 * u, -Math.PI * 0.15, Math.PI * 1.45);
+  ctx.stroke();
+  ctx.fillStyle = "#fff";
+  ctx.beginPath();
+  const ax = 5.5 * u * Math.cos(-Math.PI * 0.15);
+  const ay = hy + 5.5 * u * Math.sin(-Math.PI * 0.15);
+  ctx.moveTo(ax - 3.5 * u, ay - 1 * u);
+  ctx.lineTo(ax + 3.5 * u, ay - 1 * u);
+  ctx.lineTo(ax, ay + 4 * u);
+  ctx.fill();
 }
 
 function pressureWidth(base: number, p: number) {

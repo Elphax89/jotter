@@ -1,4 +1,4 @@
-import type { BBox, Mark, ShapeKind, TextDraft } from "./types";
+import type { BBox, Frame, Mark, ShapeKind, TextDraft } from "./types";
 
 export const FONT_STACK = 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
 
@@ -129,7 +129,33 @@ function drawPen(ctx: CanvasRenderingContext2D, m: Extract<Mark, { k: "pen" }>) 
 
 const arrowHead = (width: number) => Math.max(12, width * 4.5);
 
+/** Shapes that keep a rotation of their own (lines and circles are rotated by moving their points). */
+export const ROTATABLE: ShapeKind[] = ["rect", "ellipse", "triangle", "cuboid"];
+
 export function drawShape(
+  ctx: CanvasRenderingContext2D,
+  kind: ShapeKind,
+  x1: number,
+  y1: number,
+  x2: number,
+  y2: number,
+  color: string,
+  width: number,
+  fill: boolean,
+  r = 0,
+) {
+  if (!r || !ROTATABLE.includes(kind)) return drawShapeRaw(ctx, kind, x1, y1, x2, y2, color, width, fill);
+  const cx = (x1 + x2) / 2;
+  const cy = (y1 + y2) / 2;
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.rotate(r);
+  ctx.translate(-cx, -cy);
+  drawShapeRaw(ctx, kind, x1, y1, x2, y2, color, width, fill);
+  ctx.restore();
+}
+
+function drawShapeRaw(
   ctx: CanvasRenderingContext2D,
   kind: ShapeKind,
   x1: number,
@@ -306,7 +332,7 @@ export function drawMark(ctx: CanvasRenderingContext2D, m: Mark) {
       drawText(ctx, m.x, m.y, m.t, m.c, m.s, m.r);
       break;
     default:
-      drawShape(ctx, m.k, m.x1, m.y1, m.x2, m.y2, m.c, m.w, !!m.f);
+      drawShape(ctx, m.k, m.x1, m.y1, m.x2, m.y2, m.c, m.w, !!m.f, m.r);
   }
 }
 
@@ -320,11 +346,20 @@ export function drawMarks(ctx: CanvasRenderingContext2D, marks: Mark[], visible:
   ctx.globalCompositeOperation = "source-over";
 }
 
-export function shapeBox(kind: ShapeKind, x1: number, y1: number, x2: number, y2: number, w: number): BBox {
+export function shapeBox(kind: ShapeKind, x1: number, y1: number, x2: number, y2: number, w: number, rot = 0): BBox {
   const r = w / 2 + 1;
   if (kind === "circle") {
     const rad = Math.hypot(x2 - x1, y2 - y1) + r;
     return { x0: x1 - rad, y0: y1 - rad, x1: x1 + rad, y1: y1 + rad };
+  }
+  if (rot && ROTATABLE.includes(kind)) {
+    const cx = (x1 + x2) / 2;
+    const cy = (y1 + y2) / 2;
+    const hw = Math.abs(x2 - x1) / 2 + r;
+    const hh = Math.abs(y2 - y1) / 2 + r;
+    const ex = Math.abs(hw * Math.cos(rot)) + Math.abs(hh * Math.sin(rot));
+    const ey = Math.abs(hw * Math.sin(rot)) + Math.abs(hh * Math.cos(rot));
+    return { x0: cx - ex, y0: cy - ey, x1: cx + ex, y1: cy + ey };
   }
   const extra = kind === "arrow" ? arrowHead(w) : 0;
   return {
@@ -333,6 +368,193 @@ export function shapeBox(kind: ShapeKind, x1: number, y1: number, x2: number, y2
     x1: Math.max(x1, x2) + r + extra,
     y1: Math.max(y1, y2) + r + extra,
   };
+}
+
+// ---------------------------------------------------------------- selection geometry
+
+/** The box a picked-up mark shows (centre, half size, base angle). */
+export function markFrame(m: Mark): Frame {
+  if (m.k === "pen") {
+    const b = m.b;
+    return { px: (b.x0 + b.x1) / 2, py: (b.y0 + b.y1) / 2, hw: (b.x1 - b.x0) / 2, hh: (b.y1 - b.y0) / 2, a0: 0 };
+  }
+  if (m.k === "text") {
+    const { w, h } = measureText(m.t, m.s);
+    return { px: m.x + w / 2, py: m.y + h / 2, hw: w / 2, hh: h / 2, a0: m.r ?? 0 };
+  }
+  const half = m.w / 2;
+  if (m.k === "line" || m.k === "arrow") {
+    const len = Math.hypot(m.x2 - m.x1, m.y2 - m.y1);
+    const head = m.k === "arrow" ? Math.min(arrowHead(m.w), len * 0.6) * 0.5 : 0;
+    return { px: (m.x1 + m.x2) / 2, py: (m.y1 + m.y2) / 2, hw: len / 2 + half, hh: Math.max(half, head), a0: Math.atan2(m.y2 - m.y1, m.x2 - m.x1) };
+  }
+  if (m.k === "circle") {
+    const rad = Math.hypot(m.x2 - m.x1, m.y2 - m.y1) + half;
+    return { px: m.x1, py: m.y1, hw: rad, hh: rad, a0: 0 };
+  }
+  return {
+    px: (m.x1 + m.x2) / 2,
+    py: (m.y1 + m.y2) / 2,
+    hw: Math.abs(m.x2 - m.x1) / 2 + half,
+    hh: Math.abs(m.y2 - m.y1) / 2 + half,
+    a0: m.r ?? 0,
+  };
+}
+
+/**
+ * Bake a move / rotation / scale / recolour into a new mark.
+ * Every point p goes to  P + d + R(rot)·k·(p − P)  with P the pivot.
+ */
+export function transformMark(m: Mark, px: number, py: number, dx: number, dy: number, rot: number, k: number, color: string): Mark {
+  const cos = Math.cos(rot) * k;
+  const sin = Math.sin(rot) * k;
+  const T = (x: number, y: number): [number, number] => {
+    const ux = x - px;
+    const uy = y - py;
+    return [px + dx + ux * cos - uy * sin, py + dy + ux * sin + uy * cos];
+  };
+  const angle = (a: number | undefined) => {
+    const v = Math.atan2(Math.sin((a ?? 0) + rot), Math.cos((a ?? 0) + rot));
+    return Math.abs(v) < 1e-6 ? undefined : v;
+  };
+
+  if (m.k === "pen") {
+    const p = new Float32Array(m.p.length);
+    const b = emptyBox();
+    const pw = m.pw ? m.pw.map((w) => w * k) : undefined;
+    for (let i = 0; i < m.p.length; i += 2) {
+      const [x, y] = T(m.p[i], m.p[i + 1]);
+      p[i] = x;
+      p[i + 1] = y;
+      grow(b, x, y, (pw ? pw[i / 2] : m.w * k) / 2 + 1);
+    }
+    const out: Mark = { k: "pen", c: color, w: m.w * k, p, b };
+    if (pw) out.pw = pw;
+    if (m.e) out.e = 1;
+    return out;
+  }
+  if (m.k === "text") {
+    const a = measureText(m.t, m.s);
+    const [cx, cy] = T(m.x + a.w / 2, m.y + a.h / 2);
+    const s = m.s * k;
+    const n = measureText(m.t, s);
+    const x = cx - n.w / 2;
+    const y = cy - n.h / 2;
+    const r = angle(m.r);
+    const out: Mark = { k: "text", c: color, s, x, y, t: m.t, b: textBBox(x, y, m.t, s, r ?? 0) };
+    if (r !== undefined) out.r = r;
+    return out;
+  }
+  const w = m.w * k;
+  let x1: number, y1: number, x2: number, y2: number;
+  let r: number | undefined;
+  if (m.k === "line" || m.k === "arrow") {
+    [x1, y1] = T(m.x1, m.y1);
+    [x2, y2] = T(m.x2, m.y2);
+  } else if (m.k === "circle") {
+    [x1, y1] = T(m.x1, m.y1);
+    x2 = x1 + (m.x2 - m.x1) * k;
+    y2 = y1 + (m.y2 - m.y1) * k;
+  } else {
+    const [cx, cy] = T((m.x1 + m.x2) / 2, (m.y1 + m.y2) / 2);
+    const hx = ((m.x2 - m.x1) / 2) * k;
+    const hy = ((m.y2 - m.y1) / 2) * k;
+    x1 = cx - hx;
+    x2 = cx + hx;
+    y1 = cy - hy;
+    y2 = cy + hy;
+    r = angle(m.r);
+  }
+  const out: Mark = { k: m.k, c: color, w, x1, y1, x2, y2, b: shapeBox(m.k, x1, y1, x2, y2, w, r ?? 0) };
+  if (m.f) out.f = 1;
+  if (r !== undefined) out.r = r;
+  return out;
+}
+
+const segDist = (px: number, py: number, ax: number, ay: number, bx: number, by: number) => {
+  const vx = bx - ax;
+  const vy = by - ay;
+  const l = vx * vx + vy * vy;
+  const t = l ? Math.max(0, Math.min(1, ((px - ax) * vx + (py - ay) * vy) / l)) : 0;
+  return Math.hypot(px - ax - t * vx, py - ay - t * vy);
+};
+
+function nearPoly(pts: [number, number][], x: number, y: number, tol: number) {
+  for (let i = 0; i < pts.length; i++) {
+    const a = pts[i];
+    const b = pts[(i + 1) % pts.length];
+    if (segDist(x, y, a[0], a[1], b[0], b[1]) <= tol) return true;
+  }
+  return false;
+}
+
+function inPoly(pts: [number, number][], x: number, y: number) {
+  let inside = false;
+  for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+    const [xi, yi] = pts[i];
+    const [xj, yj] = pts[j];
+    if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
+}
+
+/** Is world point (x, y) on this mark (within `slop`)? Eraser strokes never are. */
+export function hitMark(m: Mark, x: number, y: number, slop: number): boolean {
+  const b = m.b;
+  if (x < b.x0 - slop || x > b.x1 + slop || y < b.y0 - slop || y > b.y1 + slop) return false;
+  if (m.k === "pen") {
+    if (m.e) return false;
+    const p = m.p;
+    if (p.length < 4) return Math.hypot(x - p[0], y - p[1]) <= m.w / 2 + slop;
+    for (let i = 0; i + 3 < p.length; i += 2) {
+      const w = m.pw ? Math.max(m.pw[i / 2], m.pw[i / 2 + 1]) : m.w;
+      if (segDist(x, y, p[i], p[i + 1], p[i + 2], p[i + 3]) <= w / 2 + slop) return true;
+    }
+    return false;
+  }
+  if (m.k === "text") {
+    const f = markFrame(m);
+    const dx = x - f.px;
+    const dy = y - f.py;
+    const lx = dx * Math.cos(-f.a0) - dy * Math.sin(-f.a0);
+    const ly = dx * Math.sin(-f.a0) + dy * Math.cos(-f.a0);
+    return Math.abs(lx) <= f.hw + slop && Math.abs(ly) <= f.hh + slop;
+  }
+  const tol = m.w / 2 + slop;
+  if (m.k === "line" || m.k === "arrow") return segDist(x, y, m.x1, m.y1, m.x2, m.y2) <= tol + (m.k === "arrow" ? 4 : 0);
+  if (m.k === "circle") {
+    const rad = Math.hypot(m.x2 - m.x1, m.y2 - m.y1);
+    const d = Math.hypot(x - m.x1, y - m.y1);
+    return m.f ? d <= rad + tol : Math.abs(d - rad) <= tol;
+  }
+  // into the shape's own (unrotated) frame
+  const cx = (m.x1 + m.x2) / 2;
+  const cy = (m.y1 + m.y2) / 2;
+  const r = -(m.r ?? 0);
+  const lx = cx + (x - cx) * Math.cos(r) - (y - cy) * Math.sin(r);
+  const ly = cy + (x - cx) * Math.sin(r) + (y - cy) * Math.cos(r);
+  const x0 = Math.min(m.x1, m.x2);
+  const xe = Math.max(m.x1, m.x2);
+  const y0 = Math.min(m.y1, m.y2);
+  const ye = Math.max(m.y1, m.y2);
+  if (m.k === "ellipse") {
+    const rx = (xe - x0) / 2;
+    const ry = (ye - y0) / 2;
+    const n = Math.hypot((lx - cx) / rx, (ly - cy) / ry);
+    return m.f ? n <= 1 + tol / Math.min(rx, ry) : Math.abs(n - 1) * Math.min(rx, ry) <= tol;
+  }
+  let polys: [number, number][][];
+  if (m.k === "rect") polys = [[[x0, y0], [xe, y0], [xe, ye], [x0, ye]]];
+  else if (m.k === "triangle") polys = [[[cx, m.y1], [m.x2, m.y2], [m.x1, m.y2]]];
+  else {
+    const d = Math.min(xe - x0, ye - y0) * 0.3;
+    polys = [
+      [[x0, y0 + d], [xe - d, y0 + d], [xe - d, ye], [x0, ye]],
+      [[x0, y0 + d], [x0 + d, y0], [xe, y0], [xe - d, y0 + d]],
+      [[xe - d, y0 + d], [xe, y0], [xe, ye - d], [xe - d, ye]],
+    ];
+  }
+  return polys.some((pts) => (m.f && inPoly(pts, lx, ly)) || nearPoly(pts, lx, ly, tol));
 }
 
 /** Render a sheet region to a standalone canvas (export, thumbnails). */

@@ -1,7 +1,7 @@
 {
   "name": "jotter",
   "version": "1.0.0",
-  "description": "Schnelle, offline-fähige Zeichen- und Notiz-App für Handy, Tablet und Desktop.",
+  "description": "Fast, offline-ready drawing and note app for phones, tablets and desktops.",
   "private": true,
   "type": "module",
   "license": "MIT",

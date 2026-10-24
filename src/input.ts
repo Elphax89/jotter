@@ -14,11 +14,18 @@ export interface InputDeps {
   brush(): Brush;
   /** return true to swallow the touch (e.g. it only closes a popover) */
   intercept(): boolean;
-  /** text tool: down → true when it takes the pointer; move/up follow while it is held */
-  text: {
-    down(sx: number, sy: number): boolean;
+  /** editor for texts and picked-up marks */
+  edit: {
+    /** something is being edited: every pointer goes to the editor */
+    active(): boolean;
+    /** pointer down in the text tool or while editing; move/up follow while it is held */
+    down(sx: number, sy: number, pointerType: string): boolean;
     move(sx: number, sy: number): void;
     up(): void;
+    /** is there a mark under this point that a long press could pick up? */
+    canHold(sx: number, sy: number): boolean;
+    /** long press with pen/shape tool: pick up the mark there and let it follow the finger */
+    pickAt(sx: number, sy: number): void;
   };
   onUndo(): void;
   onRedo(): void;
@@ -37,6 +44,9 @@ interface Ptr {
 type Mode = "idle" | "draw" | "shape" | "text" | "gesture" | "pan";
 
 const TAP_MS = 350;
+/** holding still this long on a drawn mark (pen / shape tool) picks it up */
+const HOLD_MS = 450;
+const HOLD_SLOP = 6;
 const TAP_SLOP = 12;
 /** a stroke this young/short when a 2nd finger lands was really the start of a pinch */
 const YOUNG_MS = 260;
@@ -109,11 +119,12 @@ export function attachInput(stage: HTMLElement, deps: InputDeps) {
     drawId = e.pointerId;
     drawType = e.pointerType;
     drawT0 = e.timeStamp;
-    if (b.tool === "text") {
+    if (b.tool === "text" || deps.edit.active()) {
       mode = "text";
-      deps.text.down(sx, sy);
+      deps.edit.down(sx, sy, e.pointerType);
       return;
     }
+    if (b.tool !== "eraser" && deps.edit.canHold(sx, sy)) armHold(sx, sy);
     if (b.tool === "shape") {
       mode = "shape";
       shapeStart = board.toWorld(sx, sy);
@@ -132,7 +143,30 @@ export function attachInput(stage: HTMLElement, deps: InputDeps) {
   // Stylus eraser button while the pen tool is active: use a generous size.
   const eraserSize = (b: Brush) => (b.tool !== "eraser" && erasing ? Math.max(b.size * 3, 24) : b.size);
 
+  // ---- long press on an existing mark picks it up (instead of drawing)
+  let holdTimer = 0;
+  let holdAt: [number, number] | null = null;
+  function armHold(sx: number, sy: number) {
+    holdAt = [sx, sy];
+    const id = drawId;
+    holdTimer = window.setTimeout(() => {
+      holdTimer = 0;
+      if (drawId !== id || !holdAt || (mode !== "draw" && mode !== "shape")) return;
+      if (mode === "draw") board.cancelStroke();
+      else board.clearPreview();
+      board.ring(null);
+      mode = "text";
+      deps.edit.pickAt(holdAt[0], holdAt[1]);
+    }, HOLD_MS);
+  }
+  function disarmHold() {
+    clearTimeout(holdTimer);
+    holdTimer = 0;
+    holdAt = null;
+  }
+
   function endDraw(cancel: boolean) {
+    disarmHold();
     if (mode === "draw") {
       if (cancel) board.cancelStroke();
       else board.endStroke();
@@ -141,7 +175,7 @@ export function attachInput(stage: HTMLElement, deps: InputDeps) {
       if (cancel) board.clearPreview();
       else board.commitShape();
     } else if (mode === "text") {
-      deps.text.up();
+      deps.edit.up();
     }
     mode = "idle";
     drawId = -1;
@@ -194,7 +228,7 @@ export function attachInput(stage: HTMLElement, deps: InputDeps) {
         return;
       }
       if (mode !== "idle") return;
-      if (penSeen) startPan(e);
+      if (penSeen && !deps.edit.active()) startPan(e);
       else startDraw(e);
       return;
     }
@@ -237,6 +271,7 @@ export function attachInput(stage: HTMLElement, deps: InputDeps) {
     p.y = y;
     if (chord && p.type === "touch" && Math.hypot(x - p.sx, y - p.sy) > TAP_SLOP) chord.moved = true;
 
+    if (holdAt && e.pointerId === drawId && Math.hypot(x - holdAt[0], y - holdAt[1]) > HOLD_SLOP) disarmHold();
     if (mode === "draw" && e.pointerId === drawId) {
       const events = typeof e.getCoalescedEvents === "function" ? e.getCoalescedEvents() : [];
       const list = events.length ? events : [e];
@@ -246,7 +281,7 @@ export function attachInput(stage: HTMLElement, deps: InputDeps) {
       }
       if (erasing && e.pointerType !== "touch") board.ring(x, y, eraserSize(deps.brush()));
     } else if (mode === "text" && e.pointerId === drawId) {
-      deps.text.move(x, y);
+      deps.edit.move(x, y);
     } else if (mode === "shape" && e.pointerId === drawId) {
       const b = deps.brush();
       let end = board.toWorld(x, y);

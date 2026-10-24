@@ -36,6 +36,8 @@ export type Mark =
       w: number;
       /** filled */
       f?: 1;
+      /** rotation in radians around the shape's centre (rect, oval, triangle, cuboid) */
+      r?: number;
       x1: number;
       y1: number;
       x2: number;
@@ -99,4 +101,28 @@ export interface TextDraft {
   t: string;
   c: string;
   s: number;
+}
+
+/** Oriented box around a mark, used to show and hit-test a selection. */
+export interface Frame {
+  /** centre */
+  px: number;
+  py: number;
+  /** half width / height before scaling */
+  hw: number;
+  hh: number;
+  /** base rotation */
+  a0: number;
+}
+
+/** A picked-up stroke or shape and what has been done to it so far. */
+export interface Selection {
+  frame: Frame;
+  dx: number;
+  dy: number;
+  /** extra rotation */
+  r: number;
+  /** scale */
+  k: number;
+  c: string;
 }

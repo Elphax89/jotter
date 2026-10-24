@@ -4,7 +4,7 @@ import { t, translateDom, LANG } from "./i18n";
 import { attachInput, isTyping, type Brush } from "./input";
 import { draftBox, renderRegion, resizeText, retext, union } from "./render";
 import { clearRecovery, deleteSheet, listSheets, loadRecovery, loadSheet, newId, newSheet, persist, putRecovery, readPref, renameSheet, requestPersistence, writePref } from "./store";
-import { OPEN_SHAPES, type BBox, type ShapeKind, type Sheet, type SheetMeta, type TextDraft, type Tool } from "./types";
+import { OPEN_SHAPES, type BBox, type ShapeKind, type Sheet, type SheetMeta, type Selection, type TextDraft, type Tool } from "./types";
 
 // ------------------------------------------------------------------ palette
 
@@ -44,6 +44,7 @@ const state = {
   fill: readPref<boolean>("fill", false),
   sizes: { pen: 6, shape: 4, eraser: 32, text: 28, ...readPref<Partial<Record<Tool, number>>>("sizes", {}) } as Record<Tool, number>,
   draft: null as TextDraft | null,
+  sel: null as Selection | null,
   chromeOff: false,
   thumbDirty: false,
   dirty: false, // changed since the sheet was last stored
@@ -69,10 +70,16 @@ const input = attachInput(stage, {
     swallow = false;
     return s;
   },
-  text: {
-    down: (sx, sy) => textDown(sx, sy),
-    move: (sx, sy) => textMove(sx, sy),
-    up: () => textUp(),
+  edit: {
+    active: () => editing(),
+    down: (sx, sy, type) => editDown(sx, sy, type),
+    move: (sx, sy) => editMove(sx, sy),
+    up: () => editUp(),
+    canHold: (sx, sy) => board.hitMark(sx, sy) >= 0,
+    pickAt: (sx, sy) => {
+      const i = board.hitMark(sx, sy);
+      if (i >= 0) pickUp(i, sx, sy);
+    },
   },
   onUndo: () => undo(),
   onRedo: () => redo(),
@@ -221,7 +228,7 @@ async function saveAs(copy = true): Promise<boolean> {
     // First save of this sheet: just name and store it.
     sheet.name = name;
     const ok = await commit();
-    if (ok) toast(`${t.savedAs} „${label}“`);
+    if (ok) toast(t.savedAs.replace("{name}", label));
     return ok;
   }
   const old = { id: sheet.id, name: sheet.name, created: sheet.created, savedAt: sheet.savedAt };
@@ -232,7 +239,7 @@ async function saveAs(copy = true): Promise<boolean> {
     Object.assign(sheet, old);
     return false;
   }
-  toast(`${t.savedAs} „${label}“`);
+  toast(t.savedAs.replace("{name}", label));
   return true;
 }
 
@@ -348,8 +355,8 @@ function sync() {
   dot.style.width = dot.style.height = `${d}px`;
   stage.classList.toggle("is-text", state.tool === "text");
 
-  const empty = board.isEmpty && !state.draft;
-  const textMode = state.tool === "text" && !state.draft;
+  const empty = board.isEmpty && !editing();
+  const textMode = state.tool === "text" && !editing();
   hint.hidden = !(empty || textMode);
   if (!hint.hidden) {
     hint.querySelector(".hint-1")!.textContent = textMode ? t.textHint : t.hint;
@@ -377,11 +384,11 @@ function syncZoom() {
 
 /** A picked-up text is put back before history moves, so indices stay valid. */
 function undo() {
-  if (board.isEditingText) closeComposer();
+  if (board.isEditing) closeComposer();
   board.undo();
 }
 function redo() {
-  if (board.isEditingText) closeComposer();
+  if (board.isEditing) closeComposer();
   board.redo();
 }
 
@@ -392,7 +399,8 @@ function setTool(tool: Tool) {
   }
   state.tool = tool;
   writePref("tool", tool);
-  if (tool !== "text") closeComposer();
+  // switching tools finishes what is being edited
+  if (state.sel || (state.draft && tool !== "text")) closeComposer("commit");
   board.clearPreview();
   closePops();
   sync();
@@ -574,47 +582,77 @@ $("#fill-toggle").addEventListener("click", () => {
 // ------------------------------------------------------------------ text
 
 const composerDel = $<HTMLButtonElement>("#composer-del");
+const composerCta = $<HTMLButtonElement>("#composer .cta");
+const composerInks = $("#composer-inks");
+const composerSize = $<HTMLInputElement>("#composer-size");
 const textHint = $("#text-hint");
 const HOLD_MS = 380;
 const MOVE_SLOP = 6;
+
+// One bar (the "composer") edits whatever is active: a text being placed, a picked-up text
+// (state.draft), or a picked-up stroke / shape (state.sel).
 
 function previewDraft(d: TextDraft) {
   state.draft = d;
   board.previewText(d);
 }
 
-const composerInks = $("#composer-inks");
-const composerSize = $<HTMLInputElement>("#composer-size");
-
-/** Colour swatches and size slider inside the text field; they act on the text being placed or picked up. */
-function renderComposerTools() {
-  const d = state.draft;
-  if (!d) return;
-  const cur = d.c.toLowerCase();
-  composerInks.replaceChildren(
-    ...INKS.map((c, i) => swatch(c, t.inks[i], c === cur, () => setDraftColor(c))),
-    customSwatch(d.c, !INKS.includes(cur), true, (v) => setDraftColor(v)),
-  );
-  const px = Math.round(d.s * board.zoom);
-  composerSize.value = String(px);
-  $("#composer-size-val").textContent = String(px);
+function previewSel(s: Selection) {
+  state.sel = s;
+  board.previewSelection(s);
 }
 
-function setDraftColor(c: string) {
-  if (!state.draft) return;
-  previewDraft({ ...state.draft, c });
-  // A new text also sets the pen colour; a picked-up text only changes itself.
-  if (!board.isEditingText) {
-    state.color = c;
-    writePref("color", c);
-    sync();
+const editing = () => !!state.draft || !!state.sel;
+
+/** Colour swatches and size slider: text size in px, or scale in % for strokes and shapes. */
+function renderComposerTools() {
+  const sel = state.sel;
+  const d = state.draft;
+  if (!sel && !d) return;
+  const color = (sel ? sel.c : d!.c).toLowerCase();
+  composerInks.replaceChildren(
+    ...INKS.map((c, i) => swatch(c, t.inks[i], c === color, () => setEditColor(c))),
+    customSwatch(color, !INKS.includes(color), true, (v) => setEditColor(v)),
+  );
+  if (sel) {
+    composerSize.min = "20";
+    composerSize.max = "400";
+    composerSize.step = "5";
+    composerSize.value = String(Math.round(sel.k * 100));
+    $("#composer-size-val").textContent = `${composerSize.value}%`;
+  } else {
+    const [min, max] = SIZE_RANGE.text;
+    composerSize.min = String(min);
+    composerSize.max = String(max);
+    composerSize.step = "1";
+    const px = Math.round(d!.s * board.zoom);
+    composerSize.value = String(px);
+    $("#composer-size-val").textContent = String(px);
+  }
+}
+
+function setEditColor(c: string) {
+  if (state.sel) previewSel({ ...state.sel, c });
+  else if (state.draft) {
+    previewDraft({ ...state.draft, c });
+    // A new text also sets the pen colour; a picked-up one only changes itself.
+    if (!board.isEditingText) {
+      state.color = c;
+      writePref("color", c);
+      sync();
+    }
   }
   renderComposerTools();
 }
 
 composerSize.addEventListener("input", () => {
-  if (!state.draft) return;
   const v = Number(composerSize.value);
+  if (state.sel) {
+    previewSel({ ...state.sel, k: v / 100 });
+    $("#composer-size-val").textContent = `${v}%`;
+    return;
+  }
+  if (!state.draft) return;
   previewDraft(resizeText(state.draft, v / board.zoom));
   $("#composer-size-val").textContent = String(v);
   if (!board.isEditingText) {
@@ -623,30 +661,48 @@ composerSize.addEventListener("input", () => {
   }
 });
 
-/** Open the composer for a new text whose top-left corner sits at world point `at`. */
-function openComposer(at: [number, number]) {
+function showBar(mode: "text-new" | "text-edit" | "mark") {
+  composer.hidden = false;
+  composerInput.hidden = mode === "mark";
+  composerCta.textContent = mode === "mark" ? t.done : t.place;
+  composerDel.hidden = mode === "text-new";
+  app.classList.add("editing");
+  renderComposerTools();
+}
+
+/**
+ * Open the bar for a new text whose top-left corner sits at world point `at`.
+ * The on-screen keyboard only comes up when the text field itself is tapped (or with a mouse).
+ */
+function openComposer(at: [number, number], focus = false) {
   previewDraft({ x: at[0], y: at[1], r: 0, t: "", c: state.color, s: state.sizes.text / board.zoom });
   composerInput.value = "";
-  composerDel.hidden = true;
-  composer.hidden = false;
-  renderComposerTools();
-  composerInput.focus({ preventScroll: true });
+  showBar("text-new");
+  if (focus) composerInput.focus({ preventScroll: true });
   sync();
 }
 
-/** Close the text field: drop the draft, or (`commit`) store it; `remove` deletes a picked-up text. */
+/** Close the bar: drop the changes, or `commit` them, or `remove` the picked-up item. */
 function closeComposer(how?: "commit" | "remove") {
   clearTimeout(drag?.kind === "hold" ? drag.timer : 0);
   drag = null;
   hideTextHint();
   composer.classList.remove("away");
-  if (!state.draft) return;
+  if (!editing()) return;
+  const sel = state.sel;
   const d = state.draft;
+  state.sel = null;
   state.draft = null;
-  if (how === "commit") board.commitText(d);
-  else if (how === "remove" && board.isEditingText) board.commitText({ ...d, t: "" });
-  else board.cancelEdit();
+  if (sel) {
+    if (how) board.commitSelection(sel, how === "remove");
+    else board.cancelEdit();
+  } else if (d) {
+    if (how === "commit") board.commitText(d);
+    else if (how === "remove" && board.isEditingText) board.commitText({ ...d, t: "" });
+    else board.cancelEdit();
+  }
   composer.hidden = true;
+  app.classList.remove("editing");
   composerInput.value = "";
   composerInput.blur();
   board.clearPreview();
@@ -663,8 +719,9 @@ composer.addEventListener("submit", (e) => {
 composerInput.addEventListener("keydown", (e) => {
   if (e.key === "Escape") closeComposer();
 });
+composerDel.addEventListener("click", () => closeComposer("remove"));
 
-// ---- moving, rotating and picking up texts
+// ---- moving, rotating, picking up
 
 type Drag =
   | { kind: "move"; ox: number; oy: number; moved: boolean; sx: number; sy: number }
@@ -692,16 +749,37 @@ function hideTextHint() {
   textHint.hidden = true;
 }
 
-/** Finger/mouse went down in the text tool. Returns true: the text tool owns this pointer. */
-function textDown(sx: number, sy: number): boolean {
+/** Dragging starts: the bar and the keyboard get out of the way. */
+function stepAside() {
+  composer.classList.add("away");
+  composerInput.blur();
+}
+
+/** Pointer down while editing, or in the text tool. Returns true: the editor owns this pointer. */
+function editDown(sx: number, sy: number, pointerType: string): boolean {
   hideTextHint();
   const w = board.toWorld(sx, sy);
+  if (state.sel) {
+    const sel = state.sel;
+    const hit = board.hitSelection(sel, sx, sy);
+    if (hit === "rotate") {
+      drag = { kind: "rotate" };
+      stepAside();
+    } else if (hit === "body") {
+      drag = { kind: "move", ox: w[0] - sel.dx, oy: w[1] - sel.dy, moved: false, sx, sy };
+    } else {
+      // tapping elsewhere finishes the edit
+      closeComposer("commit");
+      drag = { kind: "none" };
+    }
+    return true;
+  }
   if (state.draft) {
     const d = state.draft;
     const hit = board.hitDraft(d, sx, sy);
     if (hit === "rotate") {
       drag = { kind: "rotate" };
-      composer.classList.add("away");
+      stepAside();
       return true;
     }
     if (hit === "body") {
@@ -719,46 +797,49 @@ function textDown(sx: number, sy: number): boolean {
     drag = { kind: "move", ox: w[0] - moved.x, oy: w[1] - moved.y, moved: false, sx, sy };
     return true;
   }
-  const i = board.hitText(sx, sy);
-  if (i >= 0) {
+  const i = board.hitMark(sx, sy);
+  if (i >= 0 && board.isText(i)) {
     // A placed text: a tap only hints, holding picks it up.
     showTextHint(i);
-    drag = { kind: "hold", index: i, sx, sy, timer: window.setTimeout(() => pickUp(i), HOLD_MS) };
+    drag = { kind: "hold", index: i, sx, sy, timer: window.setTimeout(() => holdDone(i), HOLD_MS) };
     return true;
   }
-  openComposer(w);
+  openComposer(w, pointerType === "mouse");
   drag = { kind: "move", ox: 0, oy: 0, moved: false, sx, sy };
   return true;
 }
 
-function pickUp(index: number) {
+function holdDone(index: number) {
   if (drag?.kind !== "hold") return;
-  const { sx, sy } = drag;
-  const d = board.beginEdit(index);
-  if (!d) return;
-  hideTextHint();
-  navigator.vibrate?.(18);
-  previewDraft(d);
-  composerInput.value = d.t;
-  composerDel.hidden = false;
-  composer.hidden = false;
-  renderComposerTools();
-  composer.classList.add("away");
+  pickUp(index, drag.sx, drag.sy);
+}
+
+/** Pick up mark `index` under the finger at (sx, sy); it follows the finger right away. */
+function pickUp(index: number, sx: number, sy: number) {
   const w = board.toWorld(sx, sy);
-  drag = { kind: "move", ox: w[0] - d.x, oy: w[1] - d.y, moved: true, sx, sy };
+  hideTextHint();
+  if (board.isText(index)) {
+    const d = board.beginEdit(index);
+    if (!d) return;
+    previewDraft(d);
+    composerInput.value = d.t;
+    showBar("text-edit");
+    drag = { kind: "move", ox: w[0] - d.x, oy: w[1] - d.y, moved: true, sx, sy };
+  } else {
+    const sel = board.beginSelect(index);
+    if (!sel) return;
+    previewSel(sel);
+    showBar("mark");
+    drag = { kind: "move", ox: w[0], oy: w[1], moved: true, sx, sy };
+  }
+  navigator.vibrate?.(18);
+  stepAside();
   sync();
 }
 
-function textMove(sx: number, sy: number) {
+function editMove(sx: number, sy: number) {
   const d = drag;
-  if (!d || !state.draft) {
-    if (d?.kind === "hold" && Math.hypot(sx - d.sx, sy - d.sy) > 10) {
-      clearTimeout(d.timer);
-      hideTextHint();
-      drag = { kind: "none" };
-    }
-    return;
-  }
+  if (!d) return;
   if (d.kind === "hold") {
     if (Math.hypot(sx - d.sx, sy - d.sy) > 10) {
       clearTimeout(d.timer);
@@ -766,19 +847,21 @@ function textMove(sx: number, sy: number) {
       drag = { kind: "none" };
     }
   } else if (d.kind === "rotate") {
-    previewDraft({ ...state.draft, r: board.angleTo(state.draft, sx, sy) });
+    if (state.sel) previewSel({ ...state.sel, r: board.selAngle(state.sel, sx, sy) });
+    else if (state.draft) previewDraft({ ...state.draft, r: board.angleTo(state.draft, sx, sy) });
   } else if (d.kind === "move") {
     if (!d.moved && Math.hypot(sx - d.sx, sy - d.sy) < MOVE_SLOP) return;
     if (!d.moved) {
       d.moved = true;
-      composer.classList.add("away");
+      stepAside();
     }
     const w = board.toWorld(sx, sy);
-    previewDraft({ ...state.draft, x: w[0] - d.ox, y: w[1] - d.oy });
+    if (state.sel) previewSel({ ...state.sel, dx: w[0] - d.ox, dy: w[1] - d.oy });
+    else if (state.draft) previewDraft({ ...state.draft, x: w[0] - d.ox, y: w[1] - d.oy });
   }
 }
 
-function textUp() {
+function editUp() {
   const d = drag;
   drag = null;
   if (d?.kind === "hold") {
@@ -786,10 +869,7 @@ function textUp() {
     window.setTimeout(hideTextHint, 1500);
   }
   composer.classList.remove("away");
-  if (state.draft && !composer.hidden) composerInput.focus({ preventScroll: true });
 }
-
-composerDel.addEventListener("click", () => closeComposer("remove"));
 
 // Keep the composer above the on-screen keyboard.
 const vv = window.visualViewport;
@@ -1322,6 +1402,16 @@ app.addEventListener("click", (e) => {
 });
 
 window.addEventListener("keydown", (e) => {
+  if (editing() && !isTyping(e.target)) {
+    if (e.key === "Escape") return closeComposer();
+    if (e.key === "Enter") return closeComposer("commit");
+    if (state.sel && (e.key === "Delete" || e.key === "Backspace")) return closeComposer("remove");
+    // typing with a hardware keyboard goes straight into the text field
+    if (state.draft && e.key.length === 1 && !e.metaKey && !e.ctrlKey && !e.altKey) {
+      composerInput.focus({ preventScroll: true });
+      return;
+    }
+  }
   if (e.key === "Escape") {
     if (!settingsEl.hidden) return closeSettings();
     if (openPop) return closePops();

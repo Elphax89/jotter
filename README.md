@@ -1,156 +1,138 @@
 # Jotter
 
-**Schnell zeichnen und Notizen kritzeln – auf Handy, Tablet und Computer.**
-Kostenlos, ohne Konto, ohne Werbung. Funktioniert offline und lässt sich wie eine App installieren. Alles bleibt auf deinem Gerät.
+**Quick sketches and notes on your phone, tablet or computer.**
+Free, no account, no ads. Works offline, installs like an app, and everything stays on your device.
 
-![Jotter auf dem Handy](docs/screenshots.png)
+![Jotter running on a phone](docs/screenshots.png)
 
-👉 **Ausprobieren:** `https://<dein-name>.github.io/jotter/`
-
-*[English below](#english)*
+👉 **Try it:** https://elphax89.github.io/jotter/
 
 ---
 
-## Funktionen
+## Features
 
-- ✏️ **Stift** mit Druckempfindlichkeit (Apple Pencil, S Pen, Surface-Stift)
-- ⬜ **Formen** – Linie, Pfeil, Viereck, Kreis, Oval, Dreieck, Quader, wahlweise gefüllt
-- 🧽 **Radierer** und **Text** – frei verschieben und drehen; gesetzte Texte lassen sich per Gedrückthalten wieder aufnehmen, ändern, verschieben, löschen
-- 🎨 14 Farben + eigene Farbe, 5 Papierfarben + eigene
-- 🔍 **Zoomen & Verschieben** mit zwei Fingern – Zeichnung wird beim Drehen des Handys nie verzerrt
-- 📚 **Blätter speichern & öffnen:** Öffnen, Speichern (überschreibt), Speichern unter (neue Kopie), Umbenennen – mit Name und Datum, als Raster oder Liste, sortier- und durchsuchbar
-- 🛟 **Nichts geht verloren:** Ungespeicherte Arbeit wird im Hintergrund gesichert und nach einem Neuladen wiederhergestellt
-- ⚙️ **Einstellungen:** Autospeichern, Vollbild beim Start, Sprache, Handballen-Erkennung, Als Bild herunterladen
-- 📤 **Als Bild teilen/speichern** (PNG, automatisch auf die Zeichnung zugeschnitten)
-- 📴 **Offline** nach dem ersten Besuch, **installierbar** auf dem Homescreen
-- 🌍 Englisch & Deutsch (folgt der Gerätesprache, Standard Englisch; änderbar in den Einstellungen)
+- ✏️ **Pen** with pressure sensitivity (Apple Pencil, S Pen, Surface Pen)
+- ⬜ **Shapes**: line, arrow, rectangle, circle, oval, triangle, cuboid, optionally filled
+- 🔤 **Text**: drag it anywhere, rotate it, pick a colour and size
+- ✋ **Hold to edit**: hold any text, stroke or shape to move, rotate, recolour, resize or delete it
+- 🧽 **Eraser**
+- 🎨 14 ink colours + custom, 5 paper colours + custom
+- 🔍 **Pinch to zoom and pan** with two fingers. The drawing never stretches when you rotate the phone.
+- 📚 **Save and open sheets**: Open, Save (overwrite), Save as (new copy), Rename. Grid or list view with name and date, sortable and searchable.
+- 🛟 **Nothing gets lost**: unsaved work is kept in the background and restored after a reload
+- ⚙️ **Settings**: autosave, start in full screen, language, palm rejection
+- ⬇️ **Download or share as image** (PNG, cropped to the drawing)
+- 📴 **Offline** after the first visit, **installable** to the home screen
+- 🌍 English and German (follows the device language, switchable in Settings)
 
-## Blätter speichern und weiterzeichnen
+## Saving and continuing later
 
-| Aktion | Was passiert |
+| Action | What happens |
 |---|---|
-| **Speichern** (Diskette oben rechts) | Speichert das Blatt unter seinem Namen und überschreibt die letzte gespeicherte Version. Hat das Blatt noch keinen Namen, fragt Jotter danach. Ein oranger Punkt zeigt ungespeicherte Änderungen. Mit **Autospeichern** (Einstellungen) passiert das automatisch. |
-| **Speichern unter …** (Menü „…“) | Legt eine neue Kopie unter neuem Namen an. Das Original bleibt wie zuletzt gespeichert. |
-| **Öffnen** (Symbol oben links) | Zeigt alle Blätter als Raster oder Liste mit Name und Datum. Antippen öffnet das Blatt zum Weiterzeichnen. |
-| **Umbenennen** | Tippe oben auf den Blattnamen oder auf das Stift-Symbol in der Übersicht. |
-| **Änderungen verwerfen** (Menü, nur bei Änderungen) | Setzt das Blatt auf die zuletzt gespeicherte Version zurück. |
+| **Save** (disk icon, top right) | Stores the sheet under its name and overwrites the last saved version. Asks for a name the first time. An orange dot means there are unsaved changes. |
+| **Save as…** (menu “…”) | Stores a new copy under a new name. The original stays as it was last saved. |
+| **Open** (grid icon, top left) | Shows all saved sheets as a grid or list with name and date. Tap one to continue drawing. |
+| **Rename** | Tap the sheet name at the top, or the pencil icon in the list. |
+| **Discard changes** (menu, only with changes) | Goes back to the last saved version. |
 
-**Autospeichern** ist standardmäßig aus (Einstellungen → Autospeichern). Dann erscheinen nur Blätter in der Übersicht, die du gespeichert hast. Ungespeicherte Arbeit wird trotzdem im Hintergrund gesichert und nach einem Neuladen wiederhergestellt. Beim Wechsel zu einem anderen Blatt fragt Jotter: Speichern, Verwerfen oder Abbrechen. Löschst du in der Übersicht das gerade offene Blatt, bleibt die Zeichnung als ungespeichertes Blatt erhalten.
-
-**Als Bild herunterladen:** Menü „…“ → „Als Bild herunterladen“ (PNG, auf die Zeichnung zugeschnitten).
+**Autosave** is off by default (Settings → Autosave). With it off, only sheets you saved show up in the list. Unsaved work is still kept in the background and comes back after a reload. When you switch to another sheet with unsaved changes, Jotter asks: Save, Discard or Cancel. If you delete the sheet that is currently open, the drawing stays on screen as an unsaved sheet.
 
 ## Text
 
-1. Werkzeug **T** wählen, aufs Blatt tippen, schreiben.
-2. In der Eingabeleiste **Farbe** und **Schriftgröße** wählen (gilt auch später für aufgenommene Texte). Das gestrichelte Feld mit dem Finger **frei verschieben**, am blauen Griff **drehen** (rastet bei 15° leicht ein). Beim Ziehen blendet sich die Eingabeleiste aus.
-3. **Setzen** übernimmt den Text. Ein gesetzter Text lässt sich wieder aufnehmen: kurz antippen zeigt „Gedrückt halten zum Auswählen“, gedrückt halten nimmt ihn auf, dann verschieben, drehen, ändern oder mit dem Papierkorb löschen. Alles ist rückgängig machbar.
+1. Pick the **T** tool and tap the sheet. A dashed field appears; tap the text bar to type (the keyboard only opens then).
+2. Choose **colour** and **size** in the bar. Drag the field to **move** it freely, use the blue handle to **rotate** it (snaps gently every 15°). The bar steps aside while you drag.
+3. **Place** commits the text.
 
-**Vollbild:** Jotter wechselt beim ersten Tippen in den Vollbildmodus (Einstellungen → „App im Vollbild starten“, standardmäßig an). Browser erlauben Vollbild nur nach einer Berührung, deshalb nicht schon beim Öffnen. Auf dem iPhone gibt es im Browser keinen Vollbildmodus; dort Jotter zum Home-Bildschirm hinzufügen.
+## Hold to edit anything
 
-## Gesten
+Everything on the sheet can be changed later, whether it’s a text, a freehand stroke or a shape:
 
-| Geste | Wirkung |
+- **Hold** it for a moment (pen or shape tool; in the text tool for texts, where a tap shows a “Hold to select” hint). It lifts off the sheet and follows your finger.
+- **Move** it by dragging, **rotate** it with the blue handle, change its **colour** and **size** in the bar, or **delete** it with the bin.
+- **Done** (or a tap anywhere else) puts it back. Every change can be undone.
+
+Drawing over existing lines works as usual; only holding still picks something up.
+
+## Full screen
+
+Jotter switches to full screen with your first tap (Settings → “Start app in full screen”, on by default). Browsers only allow full screen after a touch, so it can’t happen on load. iPhone browsers don’t support full screen at all; add Jotter to the home screen instead.
+
+## Gestures
+
+| Gesture | Action |
 |---|---|
-| 1 Finger / Stift / Maus | zeichnen |
-| 2 Finger ziehen / spreizen | verschieben / zoomen |
-| 2-Finger-Tipp | rückgängig |
-| 3-Finger-Tipp | wiederholen |
-| aktives Werkzeug nochmal antippen | dessen Optionen (Stärke, Form) |
-| Stift erkannt | Finger zeichnen nicht mehr, nur noch zoomen & schieben (Handballen-Erkennung). Umschaltbar in den Einstellungen |
+| 1 finger / pen / mouse | draw |
+| 2 fingers drag / pinch | pan / zoom |
+| 2-finger tap | undo |
+| 3-finger tap | redo |
+| Tap the active tool again | its options (size, shape) |
+| Stylus detected | fingers stop drawing and only zoom and pan (palm rejection). Toggle in Settings. |
 
-**Tastatur:** `Strg/⌘+S` speichern · `Strg/⌘+Umschalt+S` speichern unter · `Strg/⌘+O` öffnen · `Strg/⌘+Z` rückgängig · `Strg/⌘+Umschalt+Z` wiederholen · `P` Stift · `S` Formen · `E` Radierer · `T` Text · `[` `]` Stärke · `0` Ansicht einpassen · `Leertaste`+Ziehen verschieben · `Umschalt` beim Formzeichnen: Quadrat/Kreis/45°
+**Keyboard:** `Ctrl/⌘+S` save · `Ctrl/⌘+Shift+S` save as · `Ctrl/⌘+O` open · `Ctrl/⌘+Z` undo · `Ctrl/⌘+Shift+Z` redo · `P` pen · `S` shapes · `E` eraser · `T` text · `[` `]` size · `0` fit view · `Space`+drag to pan · `Shift` while drawing a shape: square / 45°
 
-## Als App installieren
+## Install as an app
 
-- **iPhone/iPad (Safari):** Teilen → „Zum Home-Bildschirm“
-- **Android (Chrome):** Einstellungen in Jotter → „Als App installieren“
-- **Computer (Chrome/Edge):** Installieren-Symbol in der Adressleiste
+- **iPhone / iPad (Safari):** Share → “Add to Home Screen”
+- **Android (Chrome):** Jotter Settings → “Install as app”, or Chrome menu → “Install app”
+- **Desktop (Chrome / Edge):** install icon in the address bar
 
-## Datenschutz
+## Privacy
 
-Jotter hat **keinen Server**. Zeichnungen liegen nur im Browser-Speicher (IndexedDB) deines Geräts. Keine Cookies, kein Tracking, keine externen Schriften oder Skripte. Wer die App-Daten im Browser löscht, löscht auch die Zeichnungen.
+Jotter has **no server**. Drawings live only in your browser’s storage (IndexedDB) on your device. No cookies, no tracking, no external fonts or scripts. Clearing the browser’s site data also deletes the drawings.
 
 ---
 
-## Entwickeln
+## Development
 
-Voraussetzung: [Node.js](https://nodejs.org) 20 oder neuer.
+Requires [Node.js](https://nodejs.org) 20 or newer.
 
 ```bash
 npm install
-npm run dev        # Entwicklungsserver, auch im WLAN erreichbar (Handy testen)
-npm run build      # Typprüfung + fertige App nach dist/
-npm run preview    # dist/ lokal ansehen (inkl. Offline-Modus)
+npm run dev        # dev server, reachable on your Wi-Fi for testing on a phone
+npm run build      # type check + production build into dist/
+npm run preview    # serve dist/ locally (including offline mode)
 ```
 
-### Aufbau
+### Project layout
 
 ```
-index.html          Oberfläche (statisches HTML + Icon-Sprite)
-src/main.ts         Bedienung: Werkzeuge, Menüs, Galerie, Speichern, Export
-src/board.ts        Zeichenfläche: Ebenen, Ansicht/Zoom, Rückgängig
-src/input.ts        Finger/Stift/Maus: Zeichnen, Gesten, Handballen-Erkennung
-src/render.ts       Zeichnen der Striche, Formen, Texte
-src/store.ts        Speicherung in IndexedDB
-src/i18n.ts         Texte Deutsch/Englisch
-src/sw.js           Offline-Service-Worker (wird beim Build befüllt)
-src/styles.css      Aussehen
+index.html          UI (static HTML + icon sprite)
+src/main.ts         app logic: tools, menus, gallery, saving, text editing, export
+src/board.ts        canvas: layers, view/zoom, undo history, previews
+src/input.ts        finger / pen / mouse: drawing, gestures, palm rejection
+src/render.ts       drawing strokes, shapes and text
+src/store.ts        IndexedDB storage
+src/i18n.ts         English / German strings
+src/sw.js           offline service worker (filled in at build time)
+src/styles.css      styles
 ```
 
-Keine Laufzeit-Abhängigkeiten – nur Vite und TypeScript zum Bauen. Die fertige App ist ca. **20 KB** (gzip).
+No runtime dependencies, only Vite and TypeScript for building. The finished app is about **25 KB** gzipped.
 
-### Warum es schnell ist
+### Why it’s fast
 
-- Beim Zeichnen wird nur das **neue Stück** des Strichs gemalt, nie die ganze Zeichnung neu – auch nach Tausenden Strichen bleibt es flüssig.
-- Papierfarbe ist CSS hinter der Zeichen-Ebene; der Radierer legt sie einfach frei.
-- Sehr volle Blätter werden beim Zoomen per GPU verschoben und erst danach scharf neu gezeichnet.
-- Nur sichtbare Striche werden gezeichnet; Bildschirmauflösung auf 2× begrenzt.
-- Coalesced Pointer Events für feine Linien auch bei schnellen Bewegungen.
+- While drawing, only the **new piece** of the stroke is painted, never the whole picture, so it stays smooth even after thousands of strokes.
+- The paper colour sits on its own layer behind the ink; the eraser simply reveals it.
+- Very full sheets are moved by the GPU while zooming and redrawn sharply afterwards.
+- Only visible strokes are drawn; canvas resolution is capped at 2×.
+- Coalesced pointer events give fine lines even with fast movements.
 
-## Auf GitHub veröffentlichen
+## Publish your own copy
 
-1. Neues Repository auf GitHub anlegen (z. B. `jotter`), diesen Ordner hochladen bzw. pushen:
+1. Fork this repository, or create a new one and push this folder:
    ```bash
    git init && git add . && git commit -m "Jotter"
    git branch -M main
-   git remote add origin https://github.com/<dein-name>/jotter.git
+   git remote add origin https://github.com/<your-name>/jotter.git
    git push -u origin main
    ```
-2. Im Repo: **Settings → Pages → Source: „GitHub Actions“**.
-3. Fertig – nach ca. einer Minute läuft Jotter unter `https://<dein-name>.github.io/jotter/`.
+2. In the repo: **Settings → Pages → Source: “GitHub Actions”**.
+3. Done. After about a minute Jotter runs at `https://<your-name>.github.io/jotter/`.
 
-Jeder weitere Push auf `main` aktualisiert die Seite automatisch; Nutzer bekommen in der App den Hinweis „Neue Version verfügbar“.
+Every push to `main` updates the site; users see a “New version available” notice in the app.
 
-**Download-Paket:** Ein Tag wie `v1.0.0` pushen (`git tag v1.0.0 && git push --tags`) → unter *Releases* erscheint `jotter-web.zip`, das man auf jeden beliebigen Webspace hochladen kann.
+**Download package:** push a tag like `v1.0.0` (`git tag v1.0.0 && git push --tags`) and a `jotter-web.zip` appears under *Releases*, ready to upload to any web host.
 
-## Lizenz
+## License
 
-[MIT](LICENSE) – frei nutzbar, auch kommerziell. Icons: [Lucide](https://lucide.dev) (ISC).
-
----
-
-<a id="english"></a>
-
-## English
-
-**Jotter** is a tiny, fast drawing & note app for phones, tablets and desktops. Free, no account, no ads, works offline, installable, and everything stays on your device.
-
-- Pressure-sensitive pen, shapes (line, arrow, rectangle, circle, oval, triangle, cuboid; optional fill), eraser, text
-- Two-finger pinch to zoom & pan; two-finger tap = undo, three-finger tap = redo
-- Palm rejection once a stylus is detected
-- Open / Save (overwrite) / Save as / Rename, with name and date, grid or list view, search and sort
-- Optional Autosave (Settings, off by default); unsaved work is always recovered after a reload
-- Text: free drag, rotate handle, hold a placed text to pick it up again
-- Settings: autosave, start in full screen, language, palm rejection; download as PNG in the menu. Text colour and size can be changed while placing and when editing again
-- Share/save as PNG, cropped to the drawing
-- Offline service worker, installable PWA, English & German UI (follows device language)
-
-```bash
-npm install
-npm run dev
-npm run build   # → dist/
-```
-
-Deploy: push to `main`, then set **Settings → Pages → Source: GitHub Actions**. Tag `v*` to get a release with `jotter-web.zip`.
-
-MIT licensed.
+[MIT](LICENSE): free to use, including commercially. Icons: [Lucide](https://lucide.dev) (ISC).
