@@ -3,7 +3,9 @@
 **Quick sketches and notes on your phone, tablet or computer.**
 Free, no account, no ads. Works offline, installs like an app, and everything stays on your device.
 
-![Jotter running on a phone](docs/screenshots.png)
+![Jotter running on a phone: drawing, hold-to-edit, shapes and note cards, saved sheets](docs/screenshots.jpg)
+
+🎬 [Watch the 50-second demo](docs/demo.mp4)
 
 👉 **Try it:** https://elphax89.github.io/jotter/
 
