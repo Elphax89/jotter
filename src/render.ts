@@ -1,4 +1,4 @@
-import type { BBox, Mark, ShapeKind } from "./types";
+import type { BBox, Mark, ShapeKind, TextDraft } from "./types";
 
 export const FONT_STACK = 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
 
@@ -159,11 +159,68 @@ export function drawShape(
   ctx.stroke();
 }
 
-export function drawText(ctx: CanvasRenderingContext2D, x: number, y: number, text: string, color: string, size: number) {
+let measurer: CanvasRenderingContext2D | null = null;
+
+/** Size of a text line in world units (unrotated). */
+export function measureText(text: string, size: number): { w: number; h: number } {
+  measurer ??= document.createElement("canvas").getContext("2d")!;
+  measurer.font = font(size);
+  return { w: measurer.measureText(text).width, h: size * 1.25 };
+}
+
+/** Corner points of the (padded) text box, rotated around its centre. */
+export function textCorners(x: number, y: number, w: number, h: number, r: number, pad = 0): [number, number][] {
+  const cx = x + w / 2;
+  const cy = y + h / 2;
+  const cos = Math.cos(r);
+  const sin = Math.sin(r);
+  const hw = w / 2 + pad;
+  const hh = h / 2 + pad;
+  return ([[-hw, -hh], [hw, -hh], [hw, hh], [-hw, hh]] as [number, number][]).map(([dx, dy]) => [cx + dx * cos - dy * sin, cy + dx * sin + dy * cos]);
+}
+
+/** Axis-aligned box around a (rotated) text. */
+export function textBBox(x: number, y: number, text: string, size: number, r = 0): BBox {
+  const { w, h } = measureText(text, size);
+  const b = emptyBox();
+  for (const [px, py] of textCorners(x, y, w, h, r, 2)) grow(b, px, py);
+  return b;
+}
+
+/** Box of a draft: an empty draft still shows a field two letters wide. */
+export function draftBox(d: Pick<TextDraft, "t" | "s">): { w: number; h: number } {
+  return d.t ? measureText(d.t, d.s) : { w: d.s * 2, h: d.s * 1.25 };
+}
+
+/** New text, keeping the left edge (in the rotated direction) where it was, so typing grows to the right. */
+export function retext(d: TextDraft, t: string): TextDraft {
+  const a = draftBox(d);
+  const b = draftBox({ t, s: d.s });
+  const k = (b.w - a.w) / 2;
+  return { ...d, t, x: d.x - (b.w - a.w) / 2 + k * Math.cos(d.r), y: d.y + k * Math.sin(d.r) };
+}
+
+/** New font size around the same centre. */
+export function resizeText(d: TextDraft, s: number): TextDraft {
+  const a = draftBox(d);
+  const b = draftBox({ t: d.t, s });
+  return { ...d, s, x: d.x + (a.w - b.w) / 2, y: d.y + (a.h - b.h) / 2 };
+}
+
+export function drawText(ctx: CanvasRenderingContext2D, x: number, y: number, text: string, color: string, size: number, r = 0) {
   setPaint(ctx, color, false);
   ctx.font = font(size);
   ctx.textBaseline = "top";
-  ctx.fillText(text, x, y);
+  if (!r) {
+    ctx.fillText(text, x, y);
+    return;
+  }
+  const { w, h } = measureText(text, size);
+  ctx.save();
+  ctx.translate(x + w / 2, y + h / 2);
+  ctx.rotate(r);
+  ctx.fillText(text, -w / 2, -h / 2);
+  ctx.restore();
 }
 
 export function drawMark(ctx: CanvasRenderingContext2D, m: Mark) {
@@ -172,7 +229,7 @@ export function drawMark(ctx: CanvasRenderingContext2D, m: Mark) {
       drawPen(ctx, m);
       break;
     case "text":
-      drawText(ctx, m.x, m.y, m.t, m.c, m.s);
+      drawText(ctx, m.x, m.y, m.t, m.c, m.s, m.r);
       break;
     default:
       drawShape(ctx, m.k, m.x1, m.y1, m.x2, m.y2, m.c, m.w, !!m.f);
@@ -180,8 +237,9 @@ export function drawMark(ctx: CanvasRenderingContext2D, m: Mark) {
 }
 
 /** Draw all marks that touch `visible` (culling keeps zoomed-in views fast). */
-export function drawMarks(ctx: CanvasRenderingContext2D, marks: Mark[], visible: BBox | null) {
+export function drawMarks(ctx: CanvasRenderingContext2D, marks: Mark[], visible: BBox | null, skip: Mark | null = null) {
   for (const m of marks) {
+    if (m === skip) continue;
     if (visible && !intersects(m.b, visible)) continue;
     drawMark(ctx, m);
   }

@@ -14,7 +14,12 @@ export interface InputDeps {
   brush(): Brush;
   /** return true to swallow the touch (e.g. it only closes a popover) */
   intercept(): boolean;
-  onTextTap(at: [number, number]): void;
+  /** text tool: down → true when it takes the pointer; move/up follow while it is held */
+  text: {
+    down(sx: number, sy: number): boolean;
+    move(sx: number, sy: number): void;
+    up(): void;
+  };
   onUndo(): void;
   onRedo(): void;
   onPenDetected(): void;
@@ -29,7 +34,7 @@ interface Ptr {
   sy: number;
 }
 
-type Mode = "idle" | "draw" | "shape" | "gesture" | "pan";
+type Mode = "idle" | "draw" | "shape" | "text" | "gesture" | "pan";
 
 const TAP_MS = 350;
 const TAP_SLOP = 12;
@@ -101,13 +106,14 @@ export function attachInput(stage: HTMLElement, deps: InputDeps) {
     const b = deps.brush();
     const [sx, sy] = local(e);
     deps.onDrawStart();
-    if (b.tool === "text") {
-      deps.onTextTap(board.toWorld(sx, sy));
-      return;
-    }
     drawId = e.pointerId;
     drawType = e.pointerType;
     drawT0 = e.timeStamp;
+    if (b.tool === "text") {
+      mode = "text";
+      deps.text.down(sx, sy);
+      return;
+    }
     if (b.tool === "shape") {
       mode = "shape";
       shapeStart = board.toWorld(sx, sy);
@@ -121,6 +127,8 @@ export function attachInput(stage: HTMLElement, deps: InputDeps) {
     if (erasing && e.pointerType !== "touch") board.ring(sx, sy, eraserSize(b));
   }
 
+  const busy = () => mode === "draw" || mode === "shape" || mode === "text";
+
   // Stylus eraser button while the pen tool is active: use a generous size.
   const eraserSize = (b: Brush) => (b.tool !== "eraser" && erasing ? Math.max(b.size * 3, 24) : b.size);
 
@@ -132,6 +140,8 @@ export function attachInput(stage: HTMLElement, deps: InputDeps) {
     } else if (mode === "shape") {
       if (cancel) board.clearPreview();
       else board.commitShape();
+    } else if (mode === "text") {
+      deps.text.up();
     }
     mode = "idle";
     drawId = -1;
@@ -153,7 +163,7 @@ export function attachInput(stage: HTMLElement, deps: InputDeps) {
     const [x, y] = local(e);
     const type = e.pointerType;
 
-    if (type === "touch" && (mode === "draw" || mode === "shape") && drawType !== "touch") return; // palm while stylus draws
+    if (type === "touch" && busy() && drawType !== "touch") return; // palm while stylus draws
 
     ptrs.set(e.pointerId, { type, x, y, sx: x, sy: y });
     try {
@@ -174,7 +184,7 @@ export function attachInput(stage: HTMLElement, deps: InputDeps) {
       else if (chord) chord.max = Math.max(chord.max, n);
 
       if (n >= 2) {
-        if ((mode === "draw" || mode === "shape") && drawType === "touch") {
+        if (busy() && drawType === "touch") {
           const young = e.timeStamp - drawT0 < YOUNG_MS || (mode === "draw" && board.liveLength() < YOUNG_PX);
           endDraw(young || mode === "shape");
         }
@@ -201,7 +211,7 @@ export function attachInput(stage: HTMLElement, deps: InputDeps) {
     }
 
     // stylus
-    if ((mode === "draw" || mode === "shape") && drawType === "touch") endDraw(true);
+    if (busy() && drawType === "touch") endDraw(true);
     if (mode === "gesture" || mode === "pan") {
       gest = null;
       panPtr = null;
@@ -235,6 +245,8 @@ export function attachInput(stage: HTMLElement, deps: InputDeps) {
         board.extendStroke(sx, sy, erasing ? null : pressure(ev));
       }
       if (erasing && e.pointerType !== "touch") board.ring(x, y, eraserSize(deps.brush()));
+    } else if (mode === "text" && e.pointerId === drawId) {
+      deps.text.move(x, y);
     } else if (mode === "shape" && e.pointerId === drawId) {
       const b = deps.brush();
       let end = board.toWorld(x, y);
@@ -255,7 +267,7 @@ export function attachInput(stage: HTMLElement, deps: InputDeps) {
     ptrs.delete(e.pointerId);
     const cancelled = e.type === "pointercancel";
 
-    if ((mode === "draw" || mode === "shape") && e.pointerId === drawId) {
+    if ((mode === "draw" || mode === "shape" || mode === "text") && e.pointerId === drawId) {
       // Keep strokes even on a system cancel — losing a drawing is worse than a stray line.
       endDraw(cancelled && mode === "shape");
     } else if (mode === "gesture") {

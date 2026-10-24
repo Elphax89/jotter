@@ -2,9 +2,9 @@ import "./styles.css";
 import { Board } from "./board";
 import { t, translateDom, LANG } from "./i18n";
 import { attachInput, isTyping, type Brush } from "./input";
-import { renderRegion, union } from "./render";
+import { draftBox, renderRegion, resizeText, retext, union } from "./render";
 import { clearRecovery, deleteSheet, listSheets, loadRecovery, loadSheet, newId, newSheet, persist, putRecovery, readPref, renameSheet, requestPersistence, writePref } from "./store";
-import type { BBox, ShapeKind, Sheet, SheetMeta, Tool } from "./types";
+import type { BBox, ShapeKind, Sheet, SheetMeta, TextDraft, Tool } from "./types";
 
 // ------------------------------------------------------------------ palette
 
@@ -33,7 +33,7 @@ const toastEl = $("#toast");
 
 translateDom();
 
-const settings = { autosave: readPref<boolean>("autosave", false) };
+const settings = { autosave: readPref<boolean>("autosave", false), fullscreen: readPref<boolean>("fullscreen", true) };
 
 // ------------------------------------------------------------------ state
 
@@ -43,7 +43,7 @@ const state = {
   color: readPref<string>("color", INKS[0]),
   fill: readPref<boolean>("fill", false),
   sizes: { pen: 6, shape: 4, eraser: 32, text: 28, ...readPref<Partial<Record<Tool, number>>>("sizes", {}) } as Record<Tool, number>,
-  draft: null as [number, number] | null,
+  draft: null as TextDraft | null,
   chromeOff: false,
   thumbDirty: false,
   dirty: false, // changed since the sheet was last stored
@@ -69,9 +69,13 @@ const input = attachInput(stage, {
     swallow = false;
     return s;
   },
-  onTextTap: (at) => openComposer(at),
-  onUndo: () => board.undo(),
-  onRedo: () => board.redo(),
+  text: {
+    down: (sx, sy) => textDown(sx, sy),
+    move: (sx, sy) => textMove(sx, sy),
+    up: () => textUp(),
+  },
+  onUndo: () => undo(),
+  onRedo: () => redo(),
   onPenDetected: () => {
     writePref("penEver", true);
     toast(t.penDetected, 3600);
@@ -371,6 +375,16 @@ function syncZoom() {
   $("#zoom-label").textContent = `${Math.round(board.zoom * 100)}%`;
 }
 
+/** A picked-up text is put back before history moves, so indices stay valid. */
+function undo() {
+  if (board.isEditingText) closeComposer();
+  board.undo();
+}
+function redo() {
+  if (board.isEditingText) closeComposer();
+  board.redo();
+}
+
 function setTool(tool: Tool) {
   if (state.tool === tool) {
     togglePop(tool === "shape" ? "pop-shape" : "pop-size");
@@ -484,7 +498,7 @@ function setColor(c: string) {
     state.tool = "pen";
     writePref("tool", "pen");
   }
-  if (state.draft) board.previewText(state.draft, composerInput.value, c, state.sizes.text);
+  if (state.draft) previewDraft({ ...state.draft, c });
   sync();
 }
 
@@ -528,7 +542,7 @@ function setSize(v: number) {
   writePref("sizes", state.sizes);
   sizeRange.value = String(v);
   updateSizePreview();
-  if (state.draft) board.previewText(state.draft, composerInput.value, state.color, state.sizes.text);
+  if (state.draft && state.tool === "text") previewDraft(resizeText(state.draft, v / board.zoom));
   sync();
 }
 
@@ -559,17 +573,38 @@ $("#fill-toggle").addEventListener("click", () => {
 
 // ------------------------------------------------------------------ text
 
+const composerDel = $<HTMLButtonElement>("#composer-del");
+const textHint = $("#text-hint");
+const HOLD_MS = 380;
+const MOVE_SLOP = 6;
+
+function previewDraft(d: TextDraft) {
+  state.draft = d;
+  board.previewText(d);
+}
+
+/** Open the composer for a new text whose top-left corner sits at world point `at`. */
 function openComposer(at: [number, number]) {
-  state.draft = at;
+  previewDraft({ x: at[0], y: at[1], r: 0, t: "", c: state.color, s: state.sizes.text / board.zoom });
+  composerInput.value = "";
+  composerDel.hidden = true;
   composer.hidden = false;
   composerInput.focus({ preventScroll: true });
-  board.previewText(at, composerInput.value, state.color, state.sizes.text);
   sync();
 }
 
-function closeComposer() {
+/** Close the text field: drop the draft, or (`commit`) store it; `remove` deletes a picked-up text. */
+function closeComposer(how?: "commit" | "remove") {
+  clearTimeout(drag?.kind === "hold" ? drag.timer : 0);
+  drag = null;
+  hideTextHint();
+  composer.classList.remove("away");
   if (!state.draft) return;
+  const d = state.draft;
   state.draft = null;
+  if (how === "commit") board.commitText(d);
+  else if (how === "remove" && board.isEditingText) board.commitText({ ...d, t: "" });
+  else board.cancelEdit();
   composer.hidden = true;
   composerInput.value = "";
   composerInput.blur();
@@ -578,16 +613,141 @@ function closeComposer() {
 }
 
 composerInput.addEventListener("input", () => {
-  if (state.draft) board.previewText(state.draft, composerInput.value, state.color, state.sizes.text);
+  if (state.draft) previewDraft(retext(state.draft, composerInput.value));
 });
 composer.addEventListener("submit", (e) => {
   e.preventDefault();
-  if (state.draft) board.commitText(state.draft, composerInput.value, state.color, state.sizes.text);
-  closeComposer();
+  closeComposer("commit");
 });
 composerInput.addEventListener("keydown", (e) => {
   if (e.key === "Escape") closeComposer();
 });
+
+// ---- moving, rotating and picking up texts
+
+type Drag =
+  | { kind: "move"; ox: number; oy: number; moved: boolean; sx: number; sy: number }
+  | { kind: "rotate" }
+  | { kind: "hold"; index: number; sx: number; sy: number; timer: number }
+  | { kind: "none" };
+let drag: Drag | null = null;
+
+function showTextHint(index: number) {
+  const r = board.textScreenRect(index);
+  if (!r) return;
+  const box = stage.getBoundingClientRect();
+  textHint.hidden = false;
+  textHint.style.animation = "none";
+  void textHint.offsetWidth;
+  textHint.style.animation = "";
+  const w = textHint.offsetWidth;
+  const left = Math.min(box.right - w - 8, Math.max(box.left + 8, box.left + r.x + r.w / 2 - w / 2));
+  const above = box.top + r.y - 46;
+  textHint.style.left = `${left}px`;
+  textHint.style.top = `${above > box.top + 70 ? above : box.top + r.y + r.h + 12}px`;
+}
+
+function hideTextHint() {
+  textHint.hidden = true;
+}
+
+/** Finger/mouse went down in the text tool. Returns true: the text tool owns this pointer. */
+function textDown(sx: number, sy: number): boolean {
+  hideTextHint();
+  const w = board.toWorld(sx, sy);
+  if (state.draft) {
+    const d = state.draft;
+    const hit = board.hitDraft(d, sx, sy);
+    if (hit === "rotate") {
+      drag = { kind: "rotate" };
+      composer.classList.add("away");
+      return true;
+    }
+    if (hit === "body") {
+      drag = { kind: "move", ox: w[0] - d.x, oy: w[1] - d.y, moved: false, sx, sy };
+      return true;
+    }
+    // Anywhere else: the field jumps there (its top-left corner under the finger) and can be dragged on.
+    const { w: bw, h: bh } = draftBox(d);
+    const cos = Math.cos(d.r);
+    const sin = Math.sin(d.r);
+    const cx = w[0] + (bw / 2) * cos - (bh / 2) * sin;
+    const cy = w[1] + (bw / 2) * sin + (bh / 2) * cos;
+    const moved = { ...d, x: cx - bw / 2, y: cy - bh / 2 };
+    previewDraft(moved);
+    drag = { kind: "move", ox: w[0] - moved.x, oy: w[1] - moved.y, moved: false, sx, sy };
+    return true;
+  }
+  const i = board.hitText(sx, sy);
+  if (i >= 0) {
+    // A placed text: a tap only hints, holding picks it up.
+    showTextHint(i);
+    drag = { kind: "hold", index: i, sx, sy, timer: window.setTimeout(() => pickUp(i), HOLD_MS) };
+    return true;
+  }
+  openComposer(w);
+  drag = { kind: "move", ox: 0, oy: 0, moved: false, sx, sy };
+  return true;
+}
+
+function pickUp(index: number) {
+  if (drag?.kind !== "hold") return;
+  const { sx, sy } = drag;
+  const d = board.beginEdit(index);
+  if (!d) return;
+  hideTextHint();
+  navigator.vibrate?.(18);
+  previewDraft(d);
+  composerInput.value = d.t;
+  composerDel.hidden = false;
+  composer.hidden = false;
+  composer.classList.add("away");
+  const w = board.toWorld(sx, sy);
+  drag = { kind: "move", ox: w[0] - d.x, oy: w[1] - d.y, moved: true, sx, sy };
+  sync();
+}
+
+function textMove(sx: number, sy: number) {
+  const d = drag;
+  if (!d || !state.draft) {
+    if (d?.kind === "hold" && Math.hypot(sx - d.sx, sy - d.sy) > 10) {
+      clearTimeout(d.timer);
+      hideTextHint();
+      drag = { kind: "none" };
+    }
+    return;
+  }
+  if (d.kind === "hold") {
+    if (Math.hypot(sx - d.sx, sy - d.sy) > 10) {
+      clearTimeout(d.timer);
+      hideTextHint();
+      drag = { kind: "none" };
+    }
+  } else if (d.kind === "rotate") {
+    previewDraft({ ...state.draft, r: board.angleTo(state.draft, sx, sy) });
+  } else if (d.kind === "move") {
+    if (!d.moved && Math.hypot(sx - d.sx, sy - d.sy) < MOVE_SLOP) return;
+    if (!d.moved) {
+      d.moved = true;
+      composer.classList.add("away");
+    }
+    const w = board.toWorld(sx, sy);
+    previewDraft({ ...state.draft, x: w[0] - d.ox, y: w[1] - d.oy });
+  }
+}
+
+function textUp() {
+  const d = drag;
+  drag = null;
+  if (d?.kind === "hold") {
+    clearTimeout(d.timer); // a plain tap: the hint stays for a moment
+    window.setTimeout(hideTextHint, 1500);
+  }
+  composer.classList.remove("away");
+  if (state.draft && !composer.hidden) composerInput.focus({ preventScroll: true });
+}
+
+composerDel.addEventListener("click", () => closeComposer("remove"));
 
 // Keep the composer above the on-screen keyboard.
 const vv = window.visualViewport;
@@ -958,11 +1118,26 @@ async function downloadImage() {
 
 // ------------------------------------------------------------------ fullscreen, chrome, install
 
-const canFull = !!document.fullscreenEnabled;
-$("#item-full").hidden = !canFull;
-document.addEventListener("fullscreenchange", () => {
-  $("#full-label").textContent = document.fullscreenElement ? t.exitFullscreen : t.fullscreen;
-});
+const canFull = !!document.fullscreenEnabled && !!document.documentElement.requestFullscreen;
+
+function enterFullscreen() {
+  if (!canFull || document.fullscreenElement) return;
+  document.documentElement.requestFullscreen({ navigationUI: "hide" }).catch(() => {
+    /* refused (iframe, iOS Safari) */
+  });
+}
+
+// Browsers only allow full screen after a tap/key press, so it starts with the first one.
+// Leaving it again (Esc, back gesture) is respected until the next launch.
+if (canFull && settings.fullscreen) {
+  const go = () => {
+    window.removeEventListener("pointerup", go, true);
+    window.removeEventListener("keydown", go, true);
+    if (settings.fullscreen) enterFullscreen();
+  };
+  window.addEventListener("pointerup", go, true);
+  window.addEventListener("keydown", go, true);
+}
 
 function setChrome(off: boolean) {
   state.chromeOff = off;
@@ -988,10 +1163,13 @@ const settingsEl = $("#settings");
 const setAutosave = $<HTMLButtonElement>("#set-autosave");
 const setFingers = $<HTMLButtonElement>("#set-fingers");
 const setLang = $<HTMLSelectElement>("#set-lang");
+const setFull = $<HTMLButtonElement>("#set-full");
 
 function renderSettings() {
   setAutosave.setAttribute("aria-checked", String(settings.autosave));
   setLang.value = readPref<string>("lang", "auto");
+  setFull.hidden = !canFull;
+  setFull.setAttribute("aria-checked", String(settings.fullscreen));
   setFingers.hidden = !(input.penSeen || readPref<boolean>("penEver", false));
   setFingers.setAttribute("aria-checked", String(!input.penSeen));
 }
@@ -1020,6 +1198,14 @@ setAutosave.addEventListener("click", async () => {
   sync();
 });
 
+setFull.addEventListener("click", () => {
+  settings.fullscreen = !settings.fullscreen;
+  writePref("fullscreen", settings.fullscreen);
+  renderSettings();
+  if (settings.fullscreen) enterFullscreen();
+  else if (document.fullscreenElement) void document.exitFullscreen().catch(() => {});
+});
+
 setFingers.addEventListener("click", () => {
   input.setPenSeen(!input.penSeen); // on = fingers draw, so palm rejection flips
   renderSettings();
@@ -1034,8 +1220,8 @@ setLang.addEventListener("change", () => {
 // ------------------------------------------------------------------ actions
 
 const actions: Record<string, () => void> = {
-  undo: () => board.undo(),
-  redo: () => board.redo(),
+  undo: () => undo(),
+  redo: () => redo(),
   gallery: () => void showGallery(),
   "gallery-close": closeGallery,
   new: () => void createSheet(),
@@ -1063,15 +1249,9 @@ const actions: Record<string, () => void> = {
   clear: async () => {
     closePops();
     if (board.isEmpty) return;
-    if (await confirm(t.clearTitle, t.clearBody, t.confirmClear)) board.clear();
-  },
-  fullscreen: async () => {
-    closePops();
-    try {
-      if (document.fullscreenElement) await document.exitFullscreen();
-      else await document.documentElement.requestFullscreen({ navigationUI: "hide" });
-    } catch {
-      /* refused (iframe, iOS) */
+    if (await confirm(t.clearTitle, t.clearBody, t.confirmClear)) {
+      closeComposer();
+      board.clear();
     }
   },
   chrome: () => setChrome(!state.chromeOff),
@@ -1086,7 +1266,7 @@ const actions: Record<string, () => void> = {
       $("#set-install").hidden = true;
     } else toast(t.iosInstall, 6000);
   },
-  "cancel-text": closeComposer,
+  "cancel-text": () => closeComposer(),
 };
 
 app.addEventListener("click", (e) => {
@@ -1112,11 +1292,11 @@ window.addEventListener("keydown", (e) => {
   const k = e.key.toLowerCase();
   if (mod && k === "z") {
     e.preventDefault();
-    if (e.shiftKey) board.redo();
-    else board.undo();
+    if (e.shiftKey) redo();
+    else undo();
   } else if (mod && k === "y") {
     e.preventDefault();
-    board.redo();
+    redo();
   } else if (mod && k === "s") {
     e.preventDefault();
     if (e.shiftKey) void saveAs(true);

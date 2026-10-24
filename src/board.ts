@@ -3,17 +3,24 @@ import {
   drawSegment,
   drawShape,
   drawTail,
+  draftBox,
   drawText,
   emptyBox,
-  font,
   grow,
+  retext,
   setStrokeStyle,
   shapeBox,
+  textBBox,
   union,
 } from "./render";
-import type { BBox, Mark, ShapeKind, Sheet, View } from "./types";
+import type { BBox, Mark, ShapeKind, Sheet, TextDraft, View } from "./types";
 
-type Op = { t: "add"; m: Mark } | { t: "clear"; marks: Mark[] } | { t: "bg"; from: string; to: string };
+type Op =
+  | { t: "add"; m: Mark }
+  | { t: "edit"; i: number; from: Mark; to: Mark }
+  | { t: "del"; i: number; m: Mark }
+  | { t: "clear"; marks: Mark[] }
+  | { t: "bg"; from: string; to: string };
 
 interface LiveStroke {
   color: string;
@@ -85,6 +92,7 @@ export class Board {
 
   load(sheet: Sheet) {
     this.cancelStroke();
+    this.editing = null;
     this.sheet = sheet;
     this.past = [];
     this.future = [];
@@ -126,6 +134,13 @@ export class Board {
         marks.pop();
         this.fullRender();
       }
+    } else if (op.t === "edit") {
+      marks[op.i] = forward ? op.to : op.from;
+      this.fullRender();
+    } else if (op.t === "del") {
+      if (forward) marks.splice(op.i, 1);
+      else marks.splice(op.i, 0, op.m);
+      this.fullRender();
     } else if (op.t === "clear") {
       this.sheet.marks = forward ? [] : op.marks;
       this.fullRender();
@@ -137,6 +152,7 @@ export class Board {
 
   undo() {
     this.cancelStroke();
+    this.cancelEdit();
     const op = this.past.pop();
     if (!op) return;
     this.apply(op, false);
@@ -146,6 +162,7 @@ export class Board {
 
   redo() {
     this.cancelStroke();
+    this.cancelEdit();
     const op = this.future.pop();
     if (!op) return;
     this.apply(op, true);
@@ -155,6 +172,7 @@ export class Board {
 
   clear() {
     this.cancelStroke();
+    this.cancelEdit();
     if (this.isEmpty) return;
     const op: Op = { t: "clear", marks: this.sheet.marks };
     this.apply(op, true);
@@ -313,7 +331,7 @@ export class Board {
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, this.ink.width, this.ink.height);
     this.withView(ctx, () => {
-      drawMarks(ctx, this.sheet.marks, this.visibleWorld());
+      drawMarks(ctx, this.sheet.marks, this.visibleWorld(), this.editing?.mark ?? null);
       if (this.live) this.redrawLive();
     });
     this.lastRenderMs = performance.now() - t0;
@@ -414,7 +432,7 @@ export class Board {
 
   private preview:
     | { k: "shape"; kind: ShapeKind; x1: number; y1: number; x2: number; y2: number; c: string; w: number; f: boolean }
-    | { k: "text"; x: number; y: number; t: string; c: string; s: number }
+    | ({ k: "text" } & TextDraft)
     | { k: "ring"; x: number; y: number; r: number }
     | null = null;
 
@@ -437,9 +455,100 @@ export class Board {
     this.renderOverlay();
   }
 
-  /** Text being placed: shown with a dashed field and a blinking caret, even before the first letter. */
-  previewText(at: [number, number], text: string, color: string, screenSize: number) {
-    this.preview = { k: "text", x: at[0], y: at[1], t: text, c: color, s: screenSize / this.view.z };
+  // ---- text: place new, pick up and edit existing
+
+  /** A placed text being edited: hidden from the ink layer while its draft is shown on the overlay. */
+  private editing: { i: number; mark: Mark } | null = null;
+
+  get isEditingText() {
+    return this.editing !== null;
+  }
+
+  /** Index of the topmost text under a screen point, or -1. */
+  hitText(sx: number, sy: number): number {
+    const [wx, wy] = this.toWorld(sx, sy);
+    const slop = 8 / this.view.z;
+    const marks = this.sheet.marks;
+    for (let i = marks.length - 1; i >= 0; i--) {
+      const m = marks[i];
+      if (m.k !== "text") continue;
+      if (this.editing?.mark === m) continue;
+      if (wx < m.b.x0 - slop || wx > m.b.x1 + slop || wy < m.b.y0 - slop || wy > m.b.y1 + slop) continue;
+      if (this.inText(m.x, m.y, m.t, m.s, m.r ?? 0, wx, wy, slop)) return i;
+    }
+    return -1;
+  }
+
+  private inText(x: number, y: number, t: string, s: number, r: number, wx: number, wy: number, pad: number) {
+    const { w, h } = draftBox({ t, s });
+    const dx = wx - (x + w / 2);
+    const dy = wy - (y + h / 2);
+    const lx = dx * Math.cos(-r) - dy * Math.sin(-r);
+    const ly = dx * Math.sin(-r) + dy * Math.cos(-r);
+    return Math.abs(lx) <= w / 2 + pad && Math.abs(ly) <= h / 2 + pad;
+  }
+
+  /** Screen bounding rect of a placed text, for positioning hints. */
+  textScreenRect(i: number): { x: number; y: number; w: number; h: number } | null {
+    const m = this.sheet.marks[i];
+    if (!m || m.k !== "text") return null;
+    const v = this.view;
+    return { x: m.b.x0 * v.z + v.x, y: m.b.y0 * v.z + v.y, w: (m.b.x1 - m.b.x0) * v.z, h: (m.b.y1 - m.b.y0) * v.z };
+  }
+
+  /** Pick a placed text up for editing; returns its draft (or null if `i` is not a text). */
+  beginEdit(i: number): TextDraft | null {
+    const m = this.sheet.marks[i];
+    if (!m || m.k !== "text") return null;
+    this.editing = { i, mark: m };
+    this.fullRender();
+    return { x: m.x, y: m.y, r: m.r ?? 0, t: m.t, c: m.c, s: m.s };
+  }
+
+  /** Put the picked-up text back untouched. */
+  cancelEdit() {
+    if (!this.editing) return;
+    this.editing = null;
+    this.fullRender();
+  }
+
+  /** Where the rotate handle sits relative to the box: above, or below when there is no room above. */
+  private handleSide(d: TextDraft) {
+    const { h } = draftBox(d);
+    const cy = (d.y + h / 2) * this.view.z + this.view.y;
+    return cy < 90 ? 1 : -1;
+  }
+
+  /** Which part of the draft is under a screen point: its rotate handle, its body, or nothing. */
+  hitDraft(d: TextDraft, sx: number, sy: number): "rotate" | "body" | null {
+    const [wx, wy] = this.toWorld(sx, sy);
+    const u = 1 / this.view.z;
+    const { w, h } = draftBox(d);
+    const cx = d.x + w / 2;
+    const cy = d.y + h / 2;
+    const dist = h / 2 + 6 * u + 30 * u;
+    const side = this.handleSide(d);
+    const hx = cx - Math.sin(d.r) * side * dist;
+    const hy = cy + Math.cos(d.r) * side * dist;
+    if (Math.hypot(wx - hx, wy - hy) <= 24 * u) return "rotate";
+    return this.inText(d.x, d.y, d.t, d.s, d.r, wx, wy, 14 * u + 6 * u) ? "body" : null;
+  }
+
+  /** Angle the draft must have so its rotate handle points at screen point (sx, sy). */
+  angleTo(d: TextDraft, sx: number, sy: number): number {
+    const [wx, wy] = this.toWorld(sx, sy);
+    const { w, h } = draftBox(d);
+    let r = Math.atan2(wy - (d.y + h / 2), wx - (d.x + w / 2)) + (this.handleSide(d) === -1 ? Math.PI / 2 : -Math.PI / 2);
+    // soft snap to 15° steps near upright/right angles
+    const step = Math.PI / 12;
+    const near = Math.round(r / step) * step;
+    if (Math.abs(r - near) < (3 * Math.PI) / 180) r = near;
+    return Math.atan2(Math.sin(r), Math.cos(r));
+  }
+
+  /** Text being placed or edited: dashed field, blinking caret, rotate handle. */
+  previewText(d: TextDraft) {
+    this.preview = { k: "text", ...d };
     this.caretOn = true;
     if (!this.blinkTimer) {
       this.blinkTimer = window.setInterval(() => {
@@ -450,14 +559,29 @@ export class Board {
     this.renderOverlay();
   }
 
-  commitText(at: [number, number], text: string, color: string, screenSize: number) {
+  /** Store the draft: a new mark, or (when a placed text was picked up) a change to it. */
+  commitText(d: TextDraft) {
     this.preview = null;
-    const s = screenSize / this.view.z;
-    const t = text.trim();
-    if (t) {
-      this.ictx.font = font(s);
-      const w = this.ictx.measureText(t).width;
-      const mark: Mark = { k: "text", c: color, s, x: at[0], y: at[1], t, b: { x0: at[0] - 2, y0: at[1] - 2, x1: at[0] + w + 2, y1: at[1] + s * 1.3 } };
+    const ed = this.editing;
+    this.editing = null;
+    const t = d.t.trim();
+    const fixed = retext(d, t);
+    const mark: Mark | null = t
+      ? { k: "text", c: fixed.c, s: fixed.s, x: fixed.x, y: fixed.y, t, b: textBBox(fixed.x, fixed.y, t, fixed.s, fixed.r) }
+      : null;
+    if (mark && fixed.r) mark.r = fixed.r;
+    if (ed) {
+      if (!mark) {
+        this.sheet.marks.splice(ed.i, 1);
+        this.push({ t: "del", i: ed.i, m: ed.mark });
+      } else if (JSON.stringify({ ...mark, b: 0 }) !== JSON.stringify({ ...ed.mark, b: 0 })) {
+        this.sheet.marks[ed.i] = mark;
+        this.push({ t: "edit", i: ed.i, from: ed.mark, to: mark });
+      }
+      this.fullRender();
+      return;
+    }
+    if (mark) {
       this.withView(this.ictx, () => drawMarks(this.ictx, [mark], null));
       this.addMark(mark);
     }
@@ -502,25 +626,56 @@ export class Board {
     ctx.setTransform(s, 0, 0, s, this.dpr * v.x, this.dpr * v.y);
     if (p.k === "shape") drawShape(ctx, p.kind, p.x1, p.y1, p.x2, p.y2, p.c, p.w, p.f);
     else if (p.k === "text") {
-      if (p.t) drawText(ctx, p.x, p.y, p.t, p.c, p.s);
-      ctx.font = font(p.s);
-      const w = p.t ? ctx.measureText(p.t).width : 0;
       const u = 1 / v.z;
+      const { w, h } = draftBox(p);
       const pad = 6 * u;
-      const boxW = Math.max(w, p.s * 3);
       const blue = "#0a84ff";
+      ctx.translate(p.x + w / 2, p.y + h / 2);
+      ctx.rotate(p.r);
+      if (p.t) {
+        ctx.translate(-w / 2, -h / 2);
+        drawText(ctx, 0, 0, p.t, p.c, p.s);
+        ctx.translate(w / 2, h / 2);
+      }
       // Dashed field: where the text will land.
       ctx.lineWidth = 1.5 * u;
       ctx.setLineDash([5 * u, 4 * u]);
       ctx.strokeStyle = blue;
       ctx.beginPath();
-      ctx.rect(p.x - pad, p.y - pad, boxW + 2 * pad, p.s * 1.25 + 2 * pad);
+      ctx.rect(-w / 2 - pad, -h / 2 - pad, w + 2 * pad, h + 2 * pad);
       ctx.stroke();
       ctx.setLineDash([]);
       if (this.caretOn) {
         ctx.fillStyle = blue;
-        ctx.fillRect(p.x + w + u, p.y, Math.max(2 * u, p.s * 0.06), p.s * 1.2);
+        const cx = p.t ? w / 2 + u : -w / 2 + 2 * u;
+        ctx.fillRect(cx, -h / 2, Math.max(2 * u, p.s * 0.06), p.s * 1.2);
       }
+      // Rotate handle on a stem, on the side with room.
+      const side = this.handleSide(p);
+      const edge = side * (h / 2 + pad);
+      const hy = side * (h / 2 + pad + 30 * u);
+      ctx.lineWidth = 1.5 * u;
+      ctx.beginPath();
+      ctx.moveTo(0, edge);
+      ctx.lineTo(0, hy);
+      ctx.stroke();
+      ctx.fillStyle = blue;
+      ctx.beginPath();
+      ctx.arc(0, hy, 12 * u, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = "#fff";
+      ctx.lineWidth = 2 * u;
+      ctx.beginPath();
+      ctx.arc(0, hy, 5.5 * u, -Math.PI * 0.15, Math.PI * 1.45);
+      ctx.stroke();
+      ctx.fillStyle = "#fff";
+      ctx.beginPath();
+      const ax = 5.5 * u * Math.cos(-Math.PI * 0.15);
+      const ay = hy + 5.5 * u * Math.sin(-Math.PI * 0.15);
+      ctx.moveTo(ax - 3.5 * u, ay - 1 * u);
+      ctx.lineTo(ax + 3.5 * u, ay - 1 * u);
+      ctx.lineTo(ax, ay + 4 * u);
+      ctx.fill();
     } else {
       ctx.lineWidth = 1.5 / v.z;
       ctx.strokeStyle = "rgba(128,128,128,.9)";

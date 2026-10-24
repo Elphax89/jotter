@@ -508,6 +508,53 @@ svg {
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4);
 }
 
+.composer {
+  transition: opacity 0.14s ease, transform 0.14s ease;
+}
+
+/* while a text is dragged or rotated the field steps aside */
+.composer.away {
+  opacity: 0;
+  transform: translateY(14px);
+  pointer-events: none;
+}
+
+.text-hint {
+  position: fixed;
+  z-index: 36;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px 8px 10px;
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
+  color: var(--fg);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  pointer-events: none;
+  animation: hint-in 0.16s ease-out;
+}
+
+.text-hint svg {
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+@keyframes hint-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.96);
+  }
+}
+
 .composer input {
   flex: 1;
   min-width: 0;

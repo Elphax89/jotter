@@ -47,6 +47,8 @@ export type Mark =
       x: number;
       y: number;
       t: string;
+      /** rotation in radians around the text's centre */
+      r?: number;
       b: BBox;
     };
 
@@ -85,3 +87,13 @@ export interface SheetMeta {
 }
 
 export type Tool = "pen" | "shape" | "eraser" | "text";
+
+/** Text being placed or edited. `x`,`y` = top-left of the unrotated box, `s` = font size in world units. */
+export interface TextDraft {
+  x: number;
+  y: number;
+  r: number;
+  t: string;
+  c: string;
+  s: number;
+}

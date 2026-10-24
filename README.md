@@ -15,12 +15,12 @@ Kostenlos, ohne Konto, ohne Werbung. Funktioniert offline und lässt sich wie ei
 
 - ✏️ **Stift** mit Druckempfindlichkeit (Apple Pencil, S Pen, Surface-Stift)
 - ⬜ **Formen** – Linie, Viereck, Oval, wahlweise gefüllt
-- 🧽 **Radierer** und **Text**
+- 🧽 **Radierer** und **Text** – frei verschieben und drehen; gesetzte Texte lassen sich per Gedrückthalten wieder aufnehmen, ändern, verschieben, löschen
 - 🎨 14 Farben + eigene Farbe, 5 Papierfarben + eigene
 - 🔍 **Zoomen & Verschieben** mit zwei Fingern – Zeichnung wird beim Drehen des Handys nie verzerrt
 - 📚 **Blätter speichern & öffnen:** Öffnen, Speichern (überschreibt), Speichern unter (neue Kopie), Umbenennen – mit Name und Datum, als Raster oder Liste, sortier- und durchsuchbar
 - 🛟 **Nichts geht verloren:** Ungespeicherte Arbeit wird im Hintergrund gesichert und nach einem Neuladen wiederhergestellt
-- ⚙️ **Einstellungen:** Autospeichern (an/aus), Sprache, Handballen-Erkennung, Als Bild herunterladen
+- ⚙️ **Einstellungen:** Autospeichern, Vollbild beim Start, Sprache, Handballen-Erkennung, Als Bild herunterladen
 - 📤 **Als Bild teilen/speichern** (PNG, automatisch auf die Zeichnung zugeschnitten)
 - 📴 **Offline** nach dem ersten Besuch, **installierbar** auf dem Homescreen
 - 🌍 Englisch & Deutsch (folgt der Gerätesprache, Standard Englisch; änderbar in den Einstellungen)
@@ -37,7 +37,15 @@ Kostenlos, ohne Konto, ohne Werbung. Funktioniert offline und lässt sich wie ei
 
 **Autospeichern** ist standardmäßig aus (Einstellungen → Autospeichern). Dann erscheinen nur Blätter in der Übersicht, die du gespeichert hast. Ungespeicherte Arbeit wird trotzdem im Hintergrund gesichert und nach einem Neuladen wiederhergestellt. Beim Wechsel zu einem anderen Blatt fragt Jotter: Speichern, Verwerfen oder Abbrechen. Löschst du in der Übersicht das gerade offene Blatt, bleibt die Zeichnung als ungespeichertes Blatt erhalten.
 
-**Als Bild herunterladen:** Einstellungen → „Als Bild herunterladen“ (PNG, auf die Zeichnung zugeschnitten).
+**Als Bild herunterladen:** Menü „…“ → „Als Bild herunterladen“ (PNG, auf die Zeichnung zugeschnitten).
+
+## Text
+
+1. Werkzeug **T** wählen, aufs Blatt tippen, schreiben.
+2. Das gestrichelte Feld mit dem Finger **frei verschieben**, am blauen Griff **drehen** (rastet bei 15° leicht ein). Beim Ziehen blendet sich die Eingabeleiste aus.
+3. **Setzen** übernimmt den Text. Ein gesetzter Text lässt sich wieder aufnehmen: kurz antippen zeigt „Gedrückt halten zum Auswählen“, gedrückt halten nimmt ihn auf, dann verschieben, drehen, ändern oder mit dem Papierkorb löschen. Alles ist rückgängig machbar.
+
+**Vollbild:** Jotter wechselt beim ersten Tippen in den Vollbildmodus (Einstellungen → „App im Vollbild starten“, standardmäßig an). Browser erlauben Vollbild nur nach einer Berührung, deshalb nicht schon beim Öffnen. Auf dem iPhone gibt es im Browser keinen Vollbildmodus; dort Jotter zum Home-Bildschirm hinzufügen.
 
 ## Gesten
 
@@ -132,7 +140,8 @@ Jeder weitere Push auf `main` aktualisiert die Seite automatisch; Nutzer bekomme
 - Palm rejection once a stylus is detected
 - Open / Save (overwrite) / Save as / Rename, with name and date, grid or list view, search and sort
 - Optional Autosave (Settings, off by default); unsaved work is always recovered after a reload
-- Settings: autosave, language, palm rejection, download as PNG
+- Text: free drag, rotate handle, hold a placed text to pick it up again
+- Settings: autosave, start in full screen, language, palm rejection; download as PNG in the menu
 - Share/save as PNG, cropped to the drawing
 - Offline service worker, installable PWA, English & German UI (follows device language)
 
