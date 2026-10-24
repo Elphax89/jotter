@@ -190,6 +190,13 @@ export class Board {
     this.push(op);
   }
 
+  /** Add a finished mark (e.g. a note card); returns its index. */
+  add(m: Mark): number {
+    this.withView(this.ictx, () => drawMarks(this.ictx, [m], null));
+    this.addMark(m);
+    return this.sheet.marks.length - 1;
+  }
+
   private addMark(m: Mark) {
     const op: Op = { t: "add", m };
     this.sheet.marks.push(m);
@@ -524,7 +531,9 @@ export class Board {
     if (!m || m.k === "text" || (m.k === "pen" && m.e)) return null;
     this.editing = { i, mark: m };
     this.fullRender();
-    return { frame: markFrame(m), dx: 0, dy: 0, r: 0, k: 1, c: m.c };
+    const sel: Selection = { frame: markFrame(m), dx: 0, dy: 0, r: 0, k: 1, c: m.c };
+    if (m.k === "note") Object.assign(sel, { o: m.o ?? 1, title: m.title, t: m.t });
+    return sel;
   }
 
   /** Centre, angle, padded half size and handle side of a selection on screen. */
@@ -581,9 +590,13 @@ export class Board {
     if (remove) {
       this.sheet.marks.splice(ed.i, 1);
       this.push({ t: "del", i: ed.i, m: ed.mark });
-    } else if (sel.dx || sel.dy || sel.r || sel.k !== 1 || sel.c !== ed.mark.c) {
+    } else {
       const f = sel.frame;
-      const to = transformMark(ed.mark, f.px, f.py, sel.dx, sel.dy, sel.r, sel.k, sel.c);
+      const to = transformMark(ed.mark, f.px, f.py, sel.dx, sel.dy, sel.r, sel.k, sel.c, sel);
+      if (JSON.stringify({ ...to, p: 0, pw: 0 }) === JSON.stringify({ ...ed.mark, p: 0, pw: 0 }) && !sel.dx && !sel.dy && !sel.r && sel.k === 1) {
+        this.fullRender();
+        return;
+      }
       this.sheet.marks[ed.i] = to;
       this.push({ t: "edit", i: ed.i, from: ed.mark, to });
     }
@@ -732,7 +745,9 @@ export class Board {
         ctx.rotate(sel.r);
         ctx.scale(sel.k, sel.k);
         ctx.translate(-f.px, -f.py);
-        drawMark(ctx, { ...ed.mark, c: sel.c } as Mark);
+        const shown = { ...ed.mark, c: sel.c } as Mark;
+        if (shown.k === "note") Object.assign(shown, { o: sel.o, title: sel.title, t: sel.t });
+        drawMark(ctx, shown);
         ctx.restore();
         ctx.globalCompositeOperation = "source-over";
       }

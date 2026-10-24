@@ -2,7 +2,7 @@ import "./styles.css";
 import { Board } from "./board";
 import { t, translateDom, LANG } from "./i18n";
 import { attachInput, isTyping, type Brush } from "./input";
-import { draftBox, renderRegion, resizeText, retext, union } from "./render";
+import { NOTE_COLORS, draftBox, noteBBox, renderRegion, resizeText, retext, union } from "./render";
 import { clearRecovery, deleteSheet, listSheets, loadRecovery, loadSheet, newId, newSheet, persist, putRecovery, readPref, renameSheet, requestPersistence, writePref } from "./store";
 import { OPEN_SHAPES, type BBox, type ShapeKind, type Sheet, type SheetMeta, type Selection, type TextDraft, type Tool } from "./types";
 
@@ -356,8 +356,9 @@ function sync() {
   stage.classList.toggle("is-text", state.tool === "text");
 
   const empty = board.isEmpty && !editing();
-  const textMode = state.tool === "text" && !editing();
-  hint.hidden = !(empty || textMode);
+  const textMode = state.tool === "text";
+  // only on an empty sheet: over a drawing it would cover the picture
+  hint.hidden = !empty;
   if (!hint.hidden) {
     hint.querySelector(".hint-1")!.textContent = textMode ? t.textHint : t.hint;
     (hint.querySelector(".hint-2") as HTMLElement).hidden = textMode;
@@ -586,6 +587,9 @@ const composerCta = $<HTMLButtonElement>("#composer .cta");
 const composerInks = $("#composer-inks");
 const composerSize = $<HTMLInputElement>("#composer-size");
 const textHint = $("#text-hint");
+const composerAlphaRow = $("#composer-alpha-row");
+const composerAlpha = $<HTMLInputElement>("#composer-alpha");
+const composerNote = $<HTMLButtonElement>("#composer-note");
 const HOLD_MS = 380;
 const MOVE_SLOP = 6;
 
@@ -610,10 +614,18 @@ function renderComposerTools() {
   const d = state.draft;
   if (!sel && !d) return;
   const color = (sel ? sel.c : d!.c).toLowerCase();
+  const isNote = sel?.o !== undefined;
+  const palette = isNote ? NOTE_COLORS : INKS;
   composerInks.replaceChildren(
-    ...INKS.map((c, i) => swatch(c, t.inks[i], c === color, () => setEditColor(c))),
-    customSwatch(color, !INKS.includes(color), true, (v) => setEditColor(v)),
+    ...palette.map((c, i) => swatch(c, isNote ? c : t.inks[i], c === color, () => setEditColor(c))),
+    customSwatch(color, !palette.includes(color), true, (v) => setEditColor(v)),
   );
+  composerAlphaRow.hidden = !isNote;
+  composerNote.hidden = !isNote;
+  if (isNote) {
+    composerAlpha.value = String(Math.round(sel!.o! * 100));
+    $("#composer-alpha-val").textContent = `${composerAlpha.value}%`;
+  }
   if (sel) {
     composerSize.min = "20";
     composerSize.max = "400";
@@ -660,6 +672,79 @@ composerSize.addEventListener("input", () => {
     writePref("sizes", state.sizes);
   }
 });
+
+composerAlpha.addEventListener("input", () => {
+  if (!state.sel) return;
+  const v = Number(composerAlpha.value);
+  previewSel({ ...state.sel, o: v / 100 });
+  $("#composer-alpha-val").textContent = `${v}%`;
+});
+
+// ---- note cards
+
+const noteEditor = $<HTMLFormElement>("#note-editor");
+const noteTitle = $<HTMLInputElement>("#note-title");
+const noteBody = $<HTMLTextAreaElement>("#note-body");
+
+/** Title + text dialog; resolves null on cancel. */
+function editNote(title: string, body: string): Promise<{ title: string; t: string } | null> {
+  noteTitle.value = title;
+  noteBody.value = body;
+  noteEditor.hidden = false;
+  noteTitle.focus();
+  return new Promise((resolve) => {
+    const finish = (v: { title: string; t: string } | null) => {
+      noteEditor.hidden = true;
+      noteEditor.onsubmit = null;
+      $("#note-no").onclick = null;
+      noteEditor.onclick = null;
+      document.removeEventListener("keydown", esc, true);
+      resolve(v);
+    };
+    const esc = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        finish(null);
+      }
+    };
+    document.addEventListener("keydown", esc, true);
+    noteEditor.onsubmit = (e) => {
+      e.preventDefault();
+      finish({ title: noteTitle.value.trim(), t: noteBody.value.replace(/\s+$/, "") });
+    };
+    $("#note-no").onclick = () => finish(null);
+    noteEditor.onclick = (e) => {
+      if (e.target === noteEditor) finish(null);
+    };
+  });
+}
+
+/** "+ Note" in the shapes menu: write it, it lands in the middle of the view, ready to move. */
+async function addNote() {
+  closePops();
+  if (editing()) closeComposer("commit");
+  const res = await editNote("", "");
+  if (!res || (!res.title && !res.t)) return;
+  const z = board.zoom;
+  const w = Math.min(260, board.size.w - 60) / z;
+  const h = (res.t ? 200 : 96) / z;
+  const [cx, cy] = board.toWorld(board.size.w / 2, board.size.h / 2);
+  const x = cx - w / 2;
+  const y = cy - h / 2;
+  const i = board.add({ k: "note", c: NOTE_COLORS[0], x, y, w, h, s: 17 / z, title: res.title, t: res.t, b: noteBBox(x, y, w, h) });
+  const sel = board.beginSelect(i);
+  if (!sel) return;
+  previewSel(sel);
+  showBar("mark");
+  sync();
+}
+
+async function editNoteText() {
+  const sel = state.sel;
+  if (!sel || sel.o === undefined) return;
+  const res = await editNote(sel.title ?? "", sel.t ?? "");
+  if (res && state.sel === sel) previewSel({ ...sel, ...res });
+}
 
 function showBar(mode: "text-new" | "text-edit" | "mark") {
   composer.hidden = false;
@@ -934,7 +1019,19 @@ function renderGallery() {
   $("#sort-toggle").textContent = gallerySort === "recent" ? t.sortRecent : t.sortName;
 
   const q = searchEl.value.trim().toLowerCase();
-  const fmt = new Intl.DateTimeFormat(LANG, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+  // compact: time for today, date otherwise (cards are narrow on phones)
+  const timeFmt = new Intl.DateTimeFormat(LANG, { hour: "numeric", minute: "2-digit" });
+  const dayFmt = new Intl.DateTimeFormat(LANG, { day: "numeric", month: "short" });
+  const yearFmt = new Intl.DateTimeFormat(LANG, { day: "numeric", month: "short", year: "numeric" });
+  const today = new Date().toDateString();
+  const thisYear = new Date().getFullYear();
+  const fmt = {
+    format: (ms: number) => {
+      const d = new Date(ms);
+      if (d.toDateString() === today) return timeFmt.format(d);
+      return d.getFullYear() === thisYear ? dayFmt.format(d) : yearFmt.format(d);
+    },
+  };
   let items = galleryItems.filter((m) => !q || (m.name || t.untitled).toLowerCase().includes(q));
   if (gallerySort === "name") {
     items = [...items].sort((a, b) => (a.name || "\uffff").localeCompare(b.name || "\uffff", LANG, { numeric: true, sensitivity: "base" }) || b.updated - a.updated);
@@ -1389,6 +1486,8 @@ const actions: Record<string, () => void> = {
     } else toast(t.iosInstall, 6000);
   },
   "cancel-text": () => closeComposer(),
+  "add-note": () => void addNote(),
+  "note-text": () => void editNoteText(),
 };
 
 app.addEventListener("click", (e) => {

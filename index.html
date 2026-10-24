@@ -43,6 +43,7 @@
         <symbol id="i-plus" viewBox="0 0 24 24"><path d="M5 12h14" /><path d="M12 5v14" /></symbol>
         <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18" /><path d="m6 6 12 12" /></symbol>
         <symbol id="i-hand" viewBox="0 0 24 24"><path d="M22 14a8 8 0 0 1-8 8" /><path d="M18 11v-1a2 2 0 0 0-2-2a2 2 0 0 0-2 2" /><path d="M14 10V9a2 2 0 0 0-2-2a2 2 0 0 0-2 2v1" /><path d="M10 9.5V4a2 2 0 0 0-2-2a2 2 0 0 0-2 2v10" /><path d="M18 11a2 2 0 1 1 4 0v3a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15" /></symbol>
+        <symbol id="i-note" viewBox="0 0 24 24"><path d="M15.5 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V8.5z" /><path d="M15 3v5a1 1 0 0 0 1 1h5" /><path d="M7 13h6M7 17h9" /></symbol>
         <symbol id="i-trash" viewBox="0 0 24 24"><path d="M3 6h18" /><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" /><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" /></symbol>
         <symbol id="i-max" viewBox="0 0 24 24"><path d="M15 3h6v6" /><path d="M9 21H3v-6" /><path d="M21 3l-7 7" /><path d="M3 21l7-7" /></symbol>
         <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0" /><circle cx="12" cy="12" r="3" /></symbol>
@@ -128,6 +129,7 @@
           <button class="btn" data-shape="cuboid" data-i18n-label="cuboid"><svg><use href="#i-cuboid" /></svg></button>
         </div>
         <div class="seg fill-row">
+          <button class="btn chip note-chip" data-act="add-note"><svg><use href="#i-note" /></svg><span data-i18n="addNote">Note</span></button>
           <button class="btn chip" id="fill-toggle" aria-pressed="false" data-i18n="fill">Fill</button>
         </div>
       </div>
@@ -156,9 +158,11 @@
       <form id="composer" class="composer" hidden>
         <div class="composer-tools">
           <div id="composer-inks" class="composer-inks" role="group" data-i18n-label="color"></div>
+          <label class="composer-size" id="composer-alpha-row" hidden><span aria-hidden="true"><svg viewBox="0 0 24 24" width="16" height="16"><circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="2.2" /><path d="M12 3.5a8.5 8.5 0 0 1 0 17z" fill="currentColor" /></svg></span><input id="composer-alpha" class="range" type="range" min="10" max="100" step="5" value="100" data-i18n-label="opacity" /><output id="composer-alpha-val">100%</output></label>
           <label class="composer-size"><span aria-hidden="true">A</span><input id="composer-size" class="range" type="range" min="12" max="120" value="28" data-i18n-label="fontSize" /><output id="composer-size-val">28</output></label>
         </div>
         <input id="composer-input" maxlength="200" enterkeyhint="done" autocomplete="off" autocorrect="off" data-i18n-ph="textPlaceholder" data-i18n-label="text" />
+        <button type="button" class="btn" id="composer-note" data-act="note-text" data-i18n-label="editText" hidden><svg><use href="#i-rename" /></svg></button>
         <button type="button" class="btn" id="composer-del" data-act="delete-text" data-i18n-label="delete" hidden><svg><use href="#i-trash" /></svg></button>
         <button type="submit" class="cta" data-i18n="place">Place</button>
         <button type="button" class="btn" data-act="cancel-text" data-i18n-label="cancel"><svg><use href="#i-x" /></svg></button>
@@ -192,6 +196,18 @@
           </div>
         </div>
       </div>
+
+      <form id="note-editor" class="modal" role="dialog" aria-modal="true" aria-labelledby="note-editor-title" hidden>
+        <div class="modal-card">
+          <h2 id="note-editor-title" data-i18n="note">Note</h2>
+          <input id="note-title" class="text-input" maxlength="80" autocomplete="off" enterkeyhint="next" data-i18n-ph="noteTitle" data-i18n-label="noteTitle" />
+          <textarea id="note-body" class="text-input note-body" maxlength="2000" rows="5" data-i18n-ph="noteBody" data-i18n-label="noteBody"></textarea>
+          <div class="modal-actions">
+            <button type="button" class="ghost" id="note-no" data-i18n="cancel">Cancel</button>
+            <button type="submit" class="cta" id="note-yes" data-i18n="done">Done</button>
+          </div>
+        </div>
+      </form>
 
       <form id="prompt" class="modal" role="dialog" aria-modal="true" aria-labelledby="prompt-title" hidden>
         <div class="modal-card">

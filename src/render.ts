@@ -323,8 +323,116 @@ export function drawText(ctx: CanvasRenderingContext2D, x: number, y: number, te
   ctx.restore();
 }
 
+// ---------------------------------------------------------------- note cards
+
+export const NOTE_COLORS = ["#ffe58a", "#ffc9a3", "#ffc1d6", "#e2d1ff", "#bfe3ff", "#c8f0c0", "#ffffff", "#2b2a28"];
+
+function lum(hex: string) {
+  const n = Number.parseInt(hex.slice(1, 7), 16);
+  return (((n >> 16) & 255) * 299 + ((n >> 8) & 255) * 587 + (n & 255) * 114) / 1000;
+}
+
+/** Word-wrap `text` to `maxW`; at most `maxLines`, the last one ellipsised if cut. */
+function wrap(ctx: CanvasRenderingContext2D, text: string, maxW: number, maxLines: number): string[] {
+  const out: string[] = [];
+  for (const para of text.split("\n")) {
+    let line = "";
+    for (const word of para.split(/\s+/)) {
+      const next = line ? `${line} ${word}` : word;
+      if (ctx.measureText(next).width <= maxW || !line) line = next;
+      else {
+        out.push(line);
+        line = word;
+      }
+      // a single word wider than the card: hard break
+      while (ctx.measureText(line).width > maxW && line.length > 1) {
+        let i = line.length - 1;
+        while (i > 1 && ctx.measureText(line.slice(0, i)).width > maxW) i--;
+        out.push(line.slice(0, i));
+        line = line.slice(i);
+      }
+    }
+    out.push(line);
+  }
+  if (out.length > maxLines) {
+    const cut = out.slice(0, maxLines);
+    let last = cut[maxLines - 1];
+    while (last && ctx.measureText(last + "…").width > maxW) last = last.slice(0, -1);
+    cut[maxLines - 1] = last + "…";
+    return cut;
+  }
+  return out;
+}
+
+export function drawNote(ctx: CanvasRenderingContext2D, m: Extract<Mark, { k: "note" }>) {
+  const { x, y, w, h, s } = m;
+  const pad = s * 0.85;
+  ctx.save();
+  setPaint(ctx, m.c, false);
+  ctx.globalAlpha = m.o ?? 1;
+  ctx.translate(x + w / 2, y + h / 2);
+  if (m.r) ctx.rotate(m.r);
+  ctx.translate(-w / 2, -h / 2);
+  // card with a soft shadow
+  const rad = Math.min(s * 0.6, w / 4, h / 4);
+  ctx.beginPath();
+  ctx.moveTo(rad, 0);
+  ctx.arcTo(w, 0, w, h, rad);
+  ctx.arcTo(w, h, 0, h, rad);
+  ctx.arcTo(0, h, 0, 0, rad);
+  ctx.arcTo(0, 0, w, 0, rad);
+  ctx.closePath();
+  ctx.shadowColor = "rgba(0,0,0,0.16)";
+  ctx.shadowBlur = 10;
+  ctx.shadowOffsetY = 3;
+  ctx.fill();
+  ctx.shadowColor = "transparent";
+  if (lum(m.c) > 235) {
+    ctx.lineWidth = Math.max(0.5, s * 0.05);
+    ctx.strokeStyle = "rgba(0,0,0,0.12)";
+    ctx.stroke();
+  }
+  const ink = lum(m.c) > 140 ? "#1c1917" : "#f4f1ea";
+  ctx.fillStyle = ink;
+  ctx.textBaseline = "top";
+  let ty = pad;
+  const maxW = w - 2 * pad;
+  if (m.title) {
+    const ts = s * 1.2;
+    ctx.font = `700 ${ts}px ${FONT_STACK}`;
+    for (const l of wrap(ctx, m.title, maxW, 2)) {
+      if (ty + ts > h - pad * 0.5) break;
+      ctx.fillText(l, pad, ty);
+      ty += ts * 1.25;
+    }
+    ty += s * 0.35;
+  }
+  if (m.t) {
+    ctx.font = `400 ${s}px ${FONT_STACK}`;
+    ctx.globalAlpha *= 0.86;
+    const lh = s * 1.38;
+    const room = Math.max(1, Math.floor((h - pad - ty) / lh));
+    for (const l of wrap(ctx, m.t, maxW, room)) {
+      ctx.fillText(l, pad, ty);
+      ty += lh;
+    }
+  }
+  ctx.restore();
+}
+
+export function noteBBox(x: number, y: number, w: number, h: number, r = 0): BBox {
+  const cx = x + w / 2;
+  const cy = y + h / 2;
+  const ex = Math.abs((w / 2) * Math.cos(r)) + Math.abs((h / 2) * Math.sin(r)) + 14;
+  const ey = Math.abs((w / 2) * Math.sin(r)) + Math.abs((h / 2) * Math.cos(r)) + 14;
+  return { x0: cx - ex, y0: cy - ey, x1: cx + ex, y1: cy + ey };
+}
+
 export function drawMark(ctx: CanvasRenderingContext2D, m: Mark) {
   switch (m.k) {
+    case "note":
+      drawNote(ctx, m);
+      break;
     case "pen":
       drawPen(ctx, m);
       break;
@@ -382,6 +490,7 @@ export function markFrame(m: Mark): Frame {
     const { w, h } = measureText(m.t, m.s);
     return { px: m.x + w / 2, py: m.y + h / 2, hw: w / 2, hh: h / 2, a0: m.r ?? 0 };
   }
+  if (m.k === "note") return { px: m.x + m.w / 2, py: m.y + m.h / 2, hw: m.w / 2, hh: m.h / 2, a0: m.r ?? 0 };
   const half = m.w / 2;
   if (m.k === "line" || m.k === "arrow") {
     const len = Math.hypot(m.x2 - m.x1, m.y2 - m.y1);
@@ -405,7 +514,17 @@ export function markFrame(m: Mark): Frame {
  * Bake a move / rotation / scale / recolour into a new mark.
  * Every point p goes to  P + d + R(rot)·k·(p − P)  with P the pivot.
  */
-export function transformMark(m: Mark, px: number, py: number, dx: number, dy: number, rot: number, k: number, color: string): Mark {
+export function transformMark(
+  m: Mark,
+  px: number,
+  py: number,
+  dx: number,
+  dy: number,
+  rot: number,
+  k: number,
+  color: string,
+  note: { o?: number; title?: string; t?: string } = {},
+): Mark {
   const cos = Math.cos(rot) * k;
   const sin = Math.sin(rot) * k;
   const T = (x: number, y: number): [number, number] => {
@@ -431,6 +550,19 @@ export function transformMark(m: Mark, px: number, py: number, dx: number, dy: n
     const out: Mark = { k: "pen", c: color, w: m.w * k, p, b };
     if (pw) out.pw = pw;
     if (m.e) out.e = 1;
+    return out;
+  }
+  if (m.k === "note") {
+    const [cx, cy] = T(m.x + m.w / 2, m.y + m.h / 2);
+    const w = m.w * k;
+    const h = m.h * k;
+    const x = cx - w / 2;
+    const y = cy - h / 2;
+    const r = angle(m.r);
+    const o = note.o ?? m.o ?? 1;
+    const out: Mark = { k: "note", c: color, x, y, w, h, s: m.s * k, title: note.title ?? m.title, t: note.t ?? m.t, b: noteBBox(x, y, w, h, r ?? 0) };
+    if (r !== undefined) out.r = r;
+    if (o < 1) out.o = Math.round(o * 100) / 100;
     return out;
   }
   if (m.k === "text") {
@@ -512,7 +644,7 @@ export function hitMark(m: Mark, x: number, y: number, slop: number): boolean {
     }
     return false;
   }
-  if (m.k === "text") {
+  if (m.k === "text" || m.k === "note") {
     const f = markFrame(m);
     const dx = x - f.px;
     const dy = y - f.py;

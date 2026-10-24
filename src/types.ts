@@ -45,6 +45,25 @@ export type Mark =
       b: BBox;
     }
   | {
+      /** note card: coloured card with a title and text, drawn above what is under it */
+      k: "note";
+      /** card colour */
+      c: string;
+      /** opacity 0.1–1 */
+      o?: number;
+      /** top-left of the unrotated card, size, rotation around the centre */
+      x: number;
+      y: number;
+      w: number;
+      h: number;
+      r?: number;
+      /** base font size */
+      s: number;
+      title: string;
+      t: string;
+      b: BBox;
+    }
+  | {
       k: "text";
       c: string;
       /** font size */
@@ -125,4 +144,8 @@ export interface Selection {
   /** scale */
   k: number;
   c: string;
+  /** note cards only: opacity and text */
+  o?: number;
+  title?: string;
+  t?: string;
 }

@@ -455,6 +455,34 @@ svg {
   margin-top: 4px;
 }
 
+.fill-row .note-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 0;
+}
+
+.note-chip::before {
+  content: "+";
+  font-size: 17px;
+  margin-right: -2px;
+}
+
+.note-chip svg {
+  width: 18px;
+  height: 18px;
+}
+
+.note-body {
+  height: auto;
+  min-height: 120px;
+  padding: 10px 12px;
+  resize: vertical;
+  font: inherit;
+  font-size: 16px;
+  line-height: 1.4;
+}
+
 .presets .btn {
   flex: 1;
   min-width: 0;
