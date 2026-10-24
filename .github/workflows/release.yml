@@ -1,0 +1,27 @@
+# Push a tag like v1.0.0 → a GitHub Release with a ready-to-host zip
+# (jotter-web.zip: upload its contents to any web space and you're done).
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: cd dist && zip -r ../jotter-web.zip .
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: jotter-web.zip
+          generate_release_notes: true

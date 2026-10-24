@@ -1,0 +1,21 @@
+{
+  "name": "jotter",
+  "version": "1.0.0",
+  "description": "Schnelle, offline-fähige Zeichen- und Notiz-App für Handy, Tablet und Desktop.",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "scripts": {
+    "dev": "vite --host",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview --host",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "~5.9.3",
+    "vite": "^8.3.5"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "id": "./",
+  "name": "Jotter – Zeichnen & Notizen",
+  "short_name": "Jotter",
+  "description": "Schnelle, offline-fähige Zeichen- und Notiz-App. Keine Anmeldung, keine Werbung, alles bleibt auf deinem Gerät.",
+  "lang": "de",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "display_override": ["standalone", "fullscreen"],
+  "orientation": "any",
+  "background_color": "#141311",
+  "theme_color": "#141311",
+  "categories": ["productivity", "graphics", "education", "kids"],
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

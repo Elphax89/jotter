@@ -1,0 +1,493 @@
+import {
+  drawMarks,
+  drawSegment,
+  drawShape,
+  drawTail,
+  drawText,
+  emptyBox,
+  font,
+  grow,
+  setStrokeStyle,
+  shapeBox,
+  union,
+} from "./render";
+import type { BBox, Mark, ShapeKind, Sheet, View } from "./types";
+
+type Op = { t: "add"; m: Mark } | { t: "clear"; marks: Mark[] } | { t: "bg"; from: string; to: string };
+
+interface LiveStroke {
+  color: string;
+  width: number;
+  erase: boolean;
+  pressure: boolean;
+  pts: number[];
+  ws: number[];
+  box: BBox;
+  /** smoothed pressure */
+  sp: number;
+}
+
+const HISTORY_LIMIT = 300;
+export const MIN_ZOOM = 0.2;
+export const MAX_ZOOM = 8;
+/** Above this full-render time, gestures use a cheap CSS transform and re-render when idle. */
+const FAST_RENDER_MS = 7;
+
+/**
+ * Owns the two canvases (ink + overlay), the sheet data, history and view.
+ * Ink canvas: committed marks, drawn incrementally while you draw — no
+ * full repaint per pointer move. Overlay canvas: shape/text previews only.
+ * Paper colour is plain CSS behind the ink, so the eraser simply reveals it.
+ */
+export class Board {
+  readonly stage: HTMLElement;
+  private ink: HTMLCanvasElement;
+  private overlay: HTMLCanvasElement;
+  private ictx: CanvasRenderingContext2D;
+  private octx: CanvasRenderingContext2D;
+
+  sheet: Sheet;
+  private past: Op[] = [];
+  private future: Op[] = [];
+  private live: LiveStroke | null = null;
+
+  /** current view */
+  view: View = { x: 0, y: 0, z: 1 };
+  /** view the ink canvas was last fully rendered with */
+  private drawnView: View = { x: 0, y: 0, z: 1 };
+  private cssW = 1;
+  private cssH = 1;
+  private dpr = 1;
+  private raf = 0;
+  private idleTimer = 0;
+  private lastRenderMs = 0;
+
+  /** called after every committed change (save, UI refresh) */
+  onChange: () => void = () => {};
+  /** called when only the view changed */
+  onView: () => void = () => {};
+
+  constructor(stage: HTMLElement, ink: HTMLCanvasElement, overlay: HTMLCanvasElement, sheet: Sheet) {
+    this.stage = stage;
+    this.ink = ink;
+    this.overlay = overlay;
+    // desynchronized = low-latency path on Chromium (Android), ignored elsewhere.
+    this.ictx = ink.getContext("2d", { desynchronized: true }) as CanvasRenderingContext2D;
+    this.octx = overlay.getContext("2d") as CanvasRenderingContext2D;
+    this.sheet = sheet;
+    this.view = { ...sheet.view };
+    this.applyBackground();
+    new ResizeObserver(() => this.resize()).observe(stage);
+    this.resize();
+  }
+
+  // ---------------------------------------------------------------- sheet
+
+  load(sheet: Sheet) {
+    this.cancelStroke();
+    this.sheet = sheet;
+    this.past = [];
+    this.future = [];
+    this.view = { ...sheet.view };
+    this.applyBackground();
+    this.fullRender();
+    this.onView();
+  }
+
+  get canUndo() {
+    return this.past.length > 0;
+  }
+  get canRedo() {
+    return this.future.length > 0;
+  }
+  get isEmpty() {
+    return this.sheet.marks.length === 0;
+  }
+
+  private push(op: Op) {
+    this.past.push(op);
+    if (this.past.length > HISTORY_LIMIT) this.past.shift();
+    this.future = [];
+    this.touch();
+  }
+
+  private touch() {
+    this.sheet.updated = Date.now();
+    this.onChange();
+  }
+
+  private apply(op: Op, forward: boolean) {
+    const marks = this.sheet.marks;
+    if (op.t === "add") {
+      if (forward) {
+        marks.push(op.m);
+        this.withView(this.ictx, () => drawMarks(this.ictx, [op.m], null));
+      } else {
+        marks.pop();
+        this.fullRender();
+      }
+    } else if (op.t === "clear") {
+      this.sheet.marks = forward ? [] : op.marks;
+      this.fullRender();
+    } else {
+      this.sheet.bg = forward ? op.to : op.from;
+      this.applyBackground();
+    }
+  }
+
+  undo() {
+    this.cancelStroke();
+    const op = this.past.pop();
+    if (!op) return;
+    this.apply(op, false);
+    this.future.push(op);
+    this.touch();
+  }
+
+  redo() {
+    this.cancelStroke();
+    const op = this.future.pop();
+    if (!op) return;
+    this.apply(op, true);
+    this.past.push(op);
+    this.touch();
+  }
+
+  clear() {
+    this.cancelStroke();
+    if (this.isEmpty) return;
+    const op: Op = { t: "clear", marks: this.sheet.marks };
+    this.apply(op, true);
+    this.push(op);
+  }
+
+  setBackground(color: string) {
+    if (color === this.sheet.bg) return;
+    const op: Op = { t: "bg", from: this.sheet.bg, to: color };
+    this.apply(op, true);
+    this.push(op);
+  }
+
+  private addMark(m: Mark) {
+    const op: Op = { t: "add", m };
+    this.sheet.marks.push(m);
+    this.push(op);
+  }
+
+  private applyBackground() {
+    this.stage.style.backgroundColor = this.sheet.bg;
+  }
+
+  // ---------------------------------------------------------------- view
+
+  toWorld(sx: number, sy: number): [number, number] {
+    const v = this.view;
+    return [(sx - v.x) / v.z, (sy - v.y) / v.z];
+  }
+
+  get zoom() {
+    return this.view.z;
+  }
+
+  setView(v: View) {
+    const z = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, v.z));
+    this.view = { x: v.x, y: v.y, z };
+    this.sheet.view = { ...this.view };
+    this.scheduleViewRender();
+    this.onView();
+  }
+
+  /** Zoom by `factor` keeping screen point (sx, sy) fixed. */
+  zoomAt(sx: number, sy: number, factor: number) {
+    const v = this.view;
+    const z = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, v.z * factor));
+    const k = z / v.z;
+    this.setView({ x: sx - (sx - v.x) * k, y: sy - (sy - v.y) * k, z });
+  }
+
+  panBy(dx: number, dy: number) {
+    this.setView({ x: this.view.x + dx, y: this.view.y + dy, z: this.view.z });
+  }
+
+  get isHomeView() {
+    const v = this.view;
+    return Math.abs(v.z - 1) < 0.01 && Math.abs(v.x) < 1 && Math.abs(v.y) < 1;
+  }
+
+  /** Reset to 100 %; if the drawing doesn't fit, fit it to the screen instead. */
+  fitView() {
+    const b = union(this.sheet.marks);
+    if (!b || (b.x0 >= 0 && b.y0 >= 0 && b.x1 <= this.cssW && b.y1 <= this.cssH)) {
+      this.setView({ x: 0, y: 0, z: 1 });
+      return;
+    }
+    const pad = 24;
+    const w = b.x1 - b.x0;
+    const h = b.y1 - b.y0;
+    const z = Math.min(1, (this.cssW - pad * 2) / w, (this.cssH - pad * 2) / h);
+    this.setView({
+      x: (this.cssW - w * z) / 2 - b.x0 * z,
+      y: (this.cssH - h * z) / 2 - b.y0 * z,
+      z,
+    });
+  }
+
+  private visibleWorld(): BBox {
+    const [x0, y0] = this.toWorld(0, 0);
+    const [x1, y1] = this.toWorld(this.cssW, this.cssH);
+    return { x0, y0, x1, y1 };
+  }
+
+  private scheduleViewRender() {
+    if (this.raf) return;
+    this.raf = requestAnimationFrame(() => {
+      this.raf = 0;
+      if (this.lastRenderMs <= FAST_RENDER_MS) {
+        this.fullRender();
+        return;
+      }
+      // Heavy sheet: move the existing bitmap on the GPU, repaint crisply once idle.
+      const d = this.drawnView;
+      const v = this.view;
+      const k = v.z / d.z;
+      this.ink.style.transform = `matrix(${k},0,0,${k},${v.x - d.x * k},${v.y - d.y * k})`;
+      this.renderOverlay();
+      clearTimeout(this.idleTimer);
+      this.idleTimer = window.setTimeout(() => this.fullRender(), 140);
+    });
+  }
+
+  /** Force a crisp repaint now (e.g. when a gesture ends). */
+  settle() {
+    if (this.drawnView.x !== this.view.x || this.drawnView.y !== this.view.y || this.drawnView.z !== this.view.z) {
+      clearTimeout(this.idleTimer);
+      this.fullRender();
+    }
+  }
+
+  // ---------------------------------------------------------------- rendering
+
+  private resize() {
+    const rect = this.stage.getBoundingClientRect();
+    const w = Math.max(1, Math.round(rect.width));
+    const h = Math.max(1, Math.round(rect.height));
+    // DPR capped at 2: visually crisp, but ~2× less fill work than 3× phones.
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    if (w === this.cssW && h === this.cssH && dpr === this.dpr) return;
+    this.cssW = w;
+    this.cssH = h;
+    this.dpr = dpr;
+    for (const c of [this.ink, this.overlay]) {
+      c.width = Math.round(w * dpr);
+      c.height = Math.round(h * dpr);
+    }
+    this.fullRender();
+  }
+
+  private withView(ctx: CanvasRenderingContext2D, fn: () => void) {
+    const v = this.drawnView;
+    const s = this.dpr * v.z;
+    ctx.setTransform(s, 0, 0, s, this.dpr * v.x, this.dpr * v.y);
+    fn();
+    ctx.globalCompositeOperation = "source-over";
+  }
+
+  fullRender() {
+    const t0 = performance.now();
+    const ctx = this.ictx;
+    this.drawnView = { ...this.view };
+    this.ink.style.transform = "";
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, this.ink.width, this.ink.height);
+    this.withView(ctx, () => {
+      drawMarks(ctx, this.sheet.marks, this.visibleWorld());
+      if (this.live) this.redrawLive();
+    });
+    this.lastRenderMs = performance.now() - t0;
+    this.renderOverlay();
+  }
+
+  // ---------------------------------------------------------------- live stroke
+
+  get drawing() {
+    return this.live !== null;
+  }
+
+  beginStroke(sx: number, sy: number, color: string, screenWidth: number, erase: boolean, pressure: number | null) {
+    this.cancelStroke();
+    this.settle();
+    const width = screenWidth / this.view.z;
+    const [x, y] = this.toWorld(sx, sy);
+    const usePressure = pressure !== null;
+    const sp = usePressure ? pressure : 1;
+    const w0 = usePressure ? pressureWidth(width, sp) : width;
+    this.live = { color, width, erase, pressure: usePressure, pts: [x, y], ws: [w0], box: emptyBox(), sp };
+    grow(this.live.box, x, y, w0 / 2);
+  }
+
+  /** Append a point; returns false if it was too close to the last one. */
+  extendStroke(sx: number, sy: number, pressure: number | null) {
+    const s = this.live;
+    if (!s) return false;
+    const [x, y] = this.toWorld(sx, sy);
+    const n = s.pts.length / 2;
+    const dx = x - s.pts[2 * n - 2];
+    const dy = y - s.pts[2 * n - 1];
+    const minDist = 1 / this.view.z; // ≈ 1 screen px
+    if (dx * dx + dy * dy < minDist * minDist) return false;
+    let w = s.width;
+    if (s.pressure && pressure !== null) {
+      s.sp = s.sp * 0.6 + pressure * 0.4;
+      w = pressureWidth(s.width, s.sp);
+    }
+    s.pts.push(x, y);
+    s.ws.push(w);
+    grow(s.box, x, y, w / 2);
+    this.withView(this.ictx, () => {
+      setStrokeStyle(this.ictx, s.color, s.erase);
+      drawSegment(this.ictx, s.pts, n, (s.ws[n - 1] + w) / 2);
+    });
+    return true;
+  }
+
+  private redrawLive() {
+    const s = this.live!;
+    const ctx = this.ictx;
+    setStrokeStyle(ctx, s.color, s.erase);
+    const n = s.pts.length / 2;
+    for (let i = 1; i < n; i++) drawSegment(ctx, s.pts, i, (s.ws[i - 1] + s.ws[i]) / 2);
+  }
+
+  endStroke() {
+    const s = this.live;
+    if (!s) return;
+    this.live = null;
+    const n = s.pts.length / 2;
+    this.withView(this.ictx, () => {
+      setStrokeStyle(this.ictx, s.color, s.erase);
+      drawTail(this.ictx, s.pts, n, s.ws[n - 1]);
+    });
+    const constant = !s.pressure || s.ws.every((w) => Math.abs(w - s.ws[0]) < 0.05);
+    const mark: Mark = {
+      k: "pen",
+      c: s.color,
+      w: constant ? s.ws[0] : s.width,
+      p: Float32Array.from(s.pts),
+      b: s.box,
+    };
+    if (s.erase) mark.e = 1;
+    if (!constant) mark.pw = Float32Array.from(s.ws);
+    this.addMark(mark);
+    this.renderOverlay();
+  }
+
+  /** Throw away an in-progress stroke (e.g. it was the start of a pinch). */
+  cancelStroke() {
+    if (!this.live) return;
+    this.live = null;
+    this.fullRender();
+  }
+
+  /** How long/far the live stroke is — used to decide cancel vs. keep on a 2nd finger. */
+  liveLength() {
+    const s = this.live;
+    if (!s) return 0;
+    let len = 0;
+    for (let i = 2; i < s.pts.length; i += 2) len += Math.hypot(s.pts[i] - s.pts[i - 2], s.pts[i + 1] - s.pts[i - 1]);
+    return len * this.view.z;
+  }
+
+  // ---------------------------------------------------------------- shapes & text
+
+  private preview:
+    | { k: "shape"; kind: ShapeKind; x1: number; y1: number; x2: number; y2: number; c: string; w: number; f: boolean }
+    | { k: "text"; x: number; y: number; t: string; c: string; s: number }
+    | { k: "ring"; x: number; y: number; r: number }
+    | null = null;
+
+  previewShape(kind: ShapeKind, a: [number, number], b: [number, number], color: string, screenWidth: number, fill: boolean) {
+    this.preview = { k: "shape", kind, x1: a[0], y1: a[1], x2: b[0], y2: b[1], c: color, w: screenWidth / this.view.z, f: fill };
+    this.renderOverlay();
+  }
+
+  commitShape() {
+    const p = this.preview;
+    this.preview = null;
+    if (!p || p.k !== "shape") return this.renderOverlay();
+    const dist = Math.hypot(p.x2 - p.x1, p.y2 - p.y1) * this.view.z;
+    if (dist >= 3) {
+      const mark: Mark = { k: p.kind, c: p.c, w: p.w, x1: p.x1, y1: p.y1, x2: p.x2, y2: p.y2, b: shapeBox(p.x1, p.y1, p.x2, p.y2, p.w) };
+      if (p.f && p.kind !== "line") mark.f = 1;
+      this.withView(this.ictx, () => drawMarks(this.ictx, [mark], null));
+      this.addMark(mark);
+    }
+    this.renderOverlay();
+  }
+
+  previewText(at: [number, number], text: string, color: string, screenSize: number) {
+    this.preview = text ? { k: "text", x: at[0], y: at[1], t: text, c: color, s: screenSize / this.view.z } : null;
+    this.renderOverlay();
+  }
+
+  commitText(at: [number, number], text: string, color: string, screenSize: number) {
+    this.preview = null;
+    const s = screenSize / this.view.z;
+    const t = text.trim();
+    if (t) {
+      this.ictx.font = font(s);
+      const w = this.ictx.measureText(t).width;
+      const mark: Mark = { k: "text", c: color, s, x: at[0], y: at[1], t, b: { x0: at[0] - 2, y0: at[1] - 2, x1: at[0] + w + 2, y1: at[1] + s * 1.3 } };
+      this.withView(this.ictx, () => drawMarks(this.ictx, [mark], null));
+      this.addMark(mark);
+    }
+    this.renderOverlay();
+  }
+
+  /** Eraser/brush size ring under the pointer (null hides it). */
+  ring(sx: number | null, sy = 0, screenWidth = 0) {
+    if (sx === null) {
+      if (this.preview?.k === "ring") {
+        this.preview = null;
+        this.renderOverlay();
+      }
+      return;
+    }
+    const [x, y] = this.toWorld(sx, sy);
+    this.preview = { k: "ring", x, y, r: screenWidth / this.view.z / 2 };
+    this.renderOverlay();
+  }
+
+  clearPreview() {
+    if (!this.preview) return;
+    this.preview = null;
+    this.renderOverlay();
+  }
+
+  private renderOverlay() {
+    const ctx = this.octx;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, this.overlay.width, this.overlay.height);
+    const p = this.preview;
+    if (!p) return;
+    const v = this.view;
+    const s = this.dpr * v.z;
+    ctx.setTransform(s, 0, 0, s, this.dpr * v.x, this.dpr * v.y);
+    if (p.k === "shape") drawShape(ctx, p.kind, p.x1, p.y1, p.x2, p.y2, p.c, p.w, p.f);
+    else if (p.k === "text") drawText(ctx, p.x, p.y, p.t, p.c, p.s);
+    else {
+      ctx.lineWidth = 1.5 / v.z;
+      ctx.strokeStyle = "rgba(128,128,128,.9)";
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, Math.max(p.r, 2 / v.z), 0, Math.PI * 2);
+      ctx.stroke();
+    }
+  }
+
+  get size() {
+    return { w: this.cssW, h: this.cssH };
+  }
+}
+
+function pressureWidth(base: number, p: number) {
+  return base * (0.25 + 0.95 * Math.min(1, Math.max(0, p)));
+}
