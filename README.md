@@ -42,7 +42,7 @@ Kostenlos, ohne Konto, ohne Werbung. Funktioniert offline und lässt sich wie ei
 ## Text
 
 1. Werkzeug **T** wählen, aufs Blatt tippen, schreiben.
-2. Das gestrichelte Feld mit dem Finger **frei verschieben**, am blauen Griff **drehen** (rastet bei 15° leicht ein). Beim Ziehen blendet sich die Eingabeleiste aus.
+2. In der Eingabeleiste **Farbe** und **Schriftgröße** wählen (gilt auch später für aufgenommene Texte). Das gestrichelte Feld mit dem Finger **frei verschieben**, am blauen Griff **drehen** (rastet bei 15° leicht ein). Beim Ziehen blendet sich die Eingabeleiste aus.
 3. **Setzen** übernimmt den Text. Ein gesetzter Text lässt sich wieder aufnehmen: kurz antippen zeigt „Gedrückt halten zum Auswählen“, gedrückt halten nimmt ihn auf, dann verschieben, drehen, ändern oder mit dem Papierkorb löschen. Alles ist rückgängig machbar.
 
 **Vollbild:** Jotter wechselt beim ersten Tippen in den Vollbildmodus (Einstellungen → „App im Vollbild starten“, standardmäßig an). Browser erlauben Vollbild nur nach einer Berührung, deshalb nicht schon beim Öffnen. Auf dem iPhone gibt es im Browser keinen Vollbildmodus; dort Jotter zum Home-Bildschirm hinzufügen.
@@ -141,7 +141,7 @@ Jeder weitere Push auf `main` aktualisiert die Seite automatisch; Nutzer bekomme
 - Open / Save (overwrite) / Save as / Rename, with name and date, grid or list view, search and sort
 - Optional Autosave (Settings, off by default); unsaved work is always recovered after a reload
 - Text: free drag, rotate handle, hold a placed text to pick it up again
-- Settings: autosave, start in full screen, language, palm rejection; download as PNG in the menu
+- Settings: autosave, start in full screen, language, palm rejection; download as PNG in the menu. Text colour and size can be changed while placing and when editing again
 - Share/save as PNG, cropped to the drawing
 - Offline service worker, installable PWA, English & German UI (follows device language)
 

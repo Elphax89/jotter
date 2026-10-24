@@ -583,12 +583,53 @@ function previewDraft(d: TextDraft) {
   board.previewText(d);
 }
 
+const composerInks = $("#composer-inks");
+const composerSize = $<HTMLInputElement>("#composer-size");
+
+/** Colour swatches and size slider inside the text field; they act on the text being placed or picked up. */
+function renderComposerTools() {
+  const d = state.draft;
+  if (!d) return;
+  const cur = d.c.toLowerCase();
+  composerInks.replaceChildren(
+    ...INKS.map((c, i) => swatch(c, t.inks[i], c === cur, () => setDraftColor(c))),
+    customSwatch(d.c, !INKS.includes(cur), true, (v) => setDraftColor(v)),
+  );
+  const px = Math.round(d.s * board.zoom);
+  composerSize.value = String(px);
+  $("#composer-size-val").textContent = String(px);
+}
+
+function setDraftColor(c: string) {
+  if (!state.draft) return;
+  previewDraft({ ...state.draft, c });
+  // A new text also sets the pen colour; a picked-up text only changes itself.
+  if (!board.isEditingText) {
+    state.color = c;
+    writePref("color", c);
+    sync();
+  }
+  renderComposerTools();
+}
+
+composerSize.addEventListener("input", () => {
+  if (!state.draft) return;
+  const v = Number(composerSize.value);
+  previewDraft(resizeText(state.draft, v / board.zoom));
+  $("#composer-size-val").textContent = String(v);
+  if (!board.isEditingText) {
+    state.sizes.text = v;
+    writePref("sizes", state.sizes);
+  }
+});
+
 /** Open the composer for a new text whose top-left corner sits at world point `at`. */
 function openComposer(at: [number, number]) {
   previewDraft({ x: at[0], y: at[1], r: 0, t: "", c: state.color, s: state.sizes.text / board.zoom });
   composerInput.value = "";
   composerDel.hidden = true;
   composer.hidden = false;
+  renderComposerTools();
   composerInput.focus({ preventScroll: true });
   sync();
 }
@@ -701,6 +742,7 @@ function pickUp(index: number) {
   composerInput.value = d.t;
   composerDel.hidden = false;
   composer.hidden = false;
+  renderComposerTools();
   composer.classList.add("away");
   const w = board.toWorld(sx, sy);
   drag = { kind: "move", ox: w[0] - d.x, oy: w[1] - d.y, moved: true, sx, sy };

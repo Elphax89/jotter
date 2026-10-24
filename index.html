@@ -154,6 +154,10 @@
 
       <!-- Text composer -->
       <form id="composer" class="composer" hidden>
+        <div class="composer-tools">
+          <div id="composer-inks" class="composer-inks" role="group" data-i18n-label="color"></div>
+          <label class="composer-size"><span aria-hidden="true">A</span><input id="composer-size" class="range" type="range" min="12" max="120" value="28" data-i18n-label="fontSize" /><output id="composer-size-val">28</output></label>
+        </div>
         <input id="composer-input" maxlength="200" enterkeyhint="done" autocomplete="off" autocorrect="off" data-i18n-ph="textPlaceholder" data-i18n-label="text" />
         <button type="button" class="btn" id="composer-del" data-act="delete-text" data-i18n-label="delete" hidden><svg><use href="#i-trash" /></svg></button>
         <button type="submit" class="cta" data-i18n="place">Place</button>
@@ -225,10 +229,6 @@
           <button class="row" role="switch" id="set-fingers" aria-checked="false" hidden>
             <span class="row-text"><b data-i18n="fingersDraw">Draw with finger</b></span>
             <span class="switch"><i></i></span>
-          </button>
-          <button class="row" data-act="download">
-            <span class="row-text"><b data-i18n="download">Download as image</b><small data-i18n="downloadHint">PNG file, cropped to the drawing</small></span>
-            <svg><use href="#i-download" /></svg>
           </button>
           <button class="row" data-act="install" id="set-install" hidden>
             <span class="row-text"><b data-i18n="install">Install as app</b></span>

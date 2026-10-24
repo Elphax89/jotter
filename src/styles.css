@@ -501,6 +501,7 @@ svg {
 /* ------------------------------------------------------------- composer */
 
 .composer {
+  flex-wrap: wrap;
   position: absolute;
   z-index: 35;
   left: var(--safe-l);
@@ -519,6 +520,59 @@ svg {
 
 .composer {
   transition: opacity 0.14s ease, transform 0.14s ease;
+}
+
+.composer-tools {
+  flex: 0 0 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.composer-inks {
+  display: flex;
+  gap: 2px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  padding: 2px 0;
+}
+
+.composer-inks::-webkit-scrollbar {
+  display: none;
+}
+
+.composer-inks .swatch {
+  flex: none;
+  width: 36px;
+  height: 36px;
+}
+
+.composer-inks .swatch > span {
+  width: 24px;
+  height: 24px;
+}
+
+.composer-size {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 8px;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.composer-size .range {
+  flex: 1;
+  margin: 0;
+  height: 32px;
+}
+
+.composer-size output {
+  min-width: 2.2em;
+  text-align: right;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
 }
 
 /* while a text is dragged or rotated the field steps aside */
@@ -564,7 +618,7 @@ svg {
   }
 }
 
-.composer input {
+.composer #composer-input {
   flex: 1;
   min-width: 0;
   height: var(--btn);
@@ -576,7 +630,7 @@ svg {
   outline: none;
 }
 
-.composer input:focus {
+.composer #composer-input:focus {
   border-color: var(--muted);
 }
 
