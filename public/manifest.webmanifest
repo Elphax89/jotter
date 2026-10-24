@@ -1,9 +1,9 @@
 {
   "id": "./",
-  "name": "Jotter – Zeichnen & Notizen",
+  "name": "Jotter – Draw & Notes",
   "short_name": "Jotter",
-  "description": "Schnelle, offline-fähige Zeichen- und Notiz-App. Keine Anmeldung, keine Werbung, alles bleibt auf deinem Gerät.",
-  "lang": "de",
+  "description": "Fast, offline-ready drawing and note app. No account, no ads, everything stays on your device.",
+  "lang": "en",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

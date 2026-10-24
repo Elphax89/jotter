@@ -437,8 +437,16 @@ export class Board {
     this.renderOverlay();
   }
 
+  /** Text being placed: shown with a dashed field and a blinking caret, even before the first letter. */
   previewText(at: [number, number], text: string, color: string, screenSize: number) {
-    this.preview = text ? { k: "text", x: at[0], y: at[1], t: text, c: color, s: screenSize / this.view.z } : null;
+    this.preview = { k: "text", x: at[0], y: at[1], t: text, c: color, s: screenSize / this.view.z };
+    this.caretOn = true;
+    if (!this.blinkTimer) {
+      this.blinkTimer = window.setInterval(() => {
+        this.caretOn = !this.caretOn;
+        this.renderOverlay();
+      }, 530);
+    }
     this.renderOverlay();
   }
 
@@ -476,18 +484,44 @@ export class Board {
     this.renderOverlay();
   }
 
+  private caretOn = true;
+  private blinkTimer = 0;
+
   private renderOverlay() {
     const ctx = this.octx;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, this.overlay.width, this.overlay.height);
     const p = this.preview;
+    if (p?.k !== "text" && this.blinkTimer) {
+      clearInterval(this.blinkTimer);
+      this.blinkTimer = 0;
+    }
     if (!p) return;
     const v = this.view;
     const s = this.dpr * v.z;
     ctx.setTransform(s, 0, 0, s, this.dpr * v.x, this.dpr * v.y);
     if (p.k === "shape") drawShape(ctx, p.kind, p.x1, p.y1, p.x2, p.y2, p.c, p.w, p.f);
-    else if (p.k === "text") drawText(ctx, p.x, p.y, p.t, p.c, p.s);
-    else {
+    else if (p.k === "text") {
+      if (p.t) drawText(ctx, p.x, p.y, p.t, p.c, p.s);
+      ctx.font = font(p.s);
+      const w = p.t ? ctx.measureText(p.t).width : 0;
+      const u = 1 / v.z;
+      const pad = 6 * u;
+      const boxW = Math.max(w, p.s * 3);
+      const blue = "#0a84ff";
+      // Dashed field: where the text will land.
+      ctx.lineWidth = 1.5 * u;
+      ctx.setLineDash([5 * u, 4 * u]);
+      ctx.strokeStyle = blue;
+      ctx.beginPath();
+      ctx.rect(p.x - pad, p.y - pad, boxW + 2 * pad, p.s * 1.25 + 2 * pad);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      if (this.caretOn) {
+        ctx.fillStyle = blue;
+        ctx.fillRect(p.x + w + u, p.y, Math.max(2 * u, p.s * 0.06), p.s * 1.2);
+      }
+    } else {
       ctx.lineWidth = 1.5 / v.z;
       ctx.strokeStyle = "rgba(128,128,128,.9)";
       ctx.beginPath();

@@ -3,7 +3,7 @@ import { Board } from "./board";
 import { t, translateDom, LANG } from "./i18n";
 import { attachInput, isTyping, type Brush } from "./input";
 import { renderRegion, union } from "./render";
-import { deleteSheet, listSheets, loadSaved, loadSheet, newId, newSheet, persist, readPref, renameSheet, requestPersistence, writePref } from "./store";
+import { clearRecovery, deleteSheet, listSheets, loadRecovery, loadSheet, newId, newSheet, persist, putRecovery, readPref, renameSheet, requestPersistence, writePref } from "./store";
 import type { BBox, ShapeKind, Sheet, SheetMeta, Tool } from "./types";
 
 // ------------------------------------------------------------------ palette
@@ -33,6 +33,8 @@ const toastEl = $("#toast");
 
 translateDom();
 
+const settings = { autosave: readPref<boolean>("autosave", false) };
+
 // ------------------------------------------------------------------ state
 
 const state = {
@@ -44,8 +46,8 @@ const state = {
   draft: null as [number, number] | null,
   chromeOff: false,
   thumbDirty: false,
-  stored: false, // current sheet exists in storage
-  dirty: false, // changed since the last explicit save
+  dirty: false, // changed since the sheet was last stored
+  detached: false, // sheet was deleted from the list while open: autosave pauses until the next change
 };
 if (!(state.tool in SIZE_RANGE)) state.tool = "pen";
 
@@ -71,6 +73,7 @@ const input = attachInput(stage, {
   onUndo: () => board.undo(),
   onRedo: () => board.redo(),
   onPenDetected: () => {
+    writePref("penEver", true);
     toast(t.penDetected, 3600);
     sync();
   },
@@ -81,35 +84,47 @@ const input = attachInput(stage, {
 
 // ------------------------------------------------------------------ saving
 //
-// Two layers: every change is autosaved to a working copy (so nothing is ever
-// lost when the browser kills the tab). "Save" additionally stores a snapshot;
-// "Discard changes" returns to it, "Save as" makes a new named sheet from it.
+// The list holds only sheets you saved. "Save" overwrites the stored sheet, "Save as"
+// stores a copy. With Autosave on, every change is written into the sheet automatically.
+// With it off (default), unsaved work is only kept in a hidden recovery slot so a reload
+// or a killed tab doesn't lose it; it never shows up in the list.
 
 let saveTimer = 0;
 let thumbTimer = 0;
 let saveErrorShown = false;
+let changeRev = 0;
+let persistAsked = false;
+
+const autosaving = () => settings.autosave && !state.detached;
+/** shown to the user as "unsaved changes" */
+const isUnsaved = () => state.dirty && !autosaving();
 
 board.onChange = () => {
+  changeRev++;
   state.dirty = true;
+  state.detached = false;
   state.thumbDirty = true;
-  if (!state.stored) requestPersistence();
-  scheduleSave(450);
+  if (!persistAsked) {
+    persistAsked = true;
+    requestPersistence();
+  }
+  scheduleSave(settings.autosave ? 600 : 450);
   sync();
 };
 board.onView = () => {
   syncZoom();
-  if (state.stored) scheduleSave(900);
+  if (state.dirty || (settings.autosave && board.sheet.savedAt)) scheduleSave(900);
 };
 
 function scheduleSave(ms: number) {
   clearTimeout(saveTimer);
-  saveTimer = window.setTimeout(() => void save(false), ms);
-  // Gallery thumbnail: only once drawing pauses, so it never competes with input.
-  if (state.thumbDirty) {
+  saveTimer = window.setTimeout(() => void writeBack(false), ms);
+  // Thumbnail only once drawing pauses, so it never competes with input.
+  if (settings.autosave && state.thumbDirty) {
     clearTimeout(thumbTimer);
     thumbTimer = window.setTimeout(() => {
       const run = () => {
-        if (!board.drawing && state.thumbDirty) void save(true);
+        if (!board.drawing && state.thumbDirty) void writeBack(true);
       };
       if ("requestIdleCallback" in window) requestIdleCallback(run, { timeout: 2000 });
       else run();
@@ -117,23 +132,27 @@ function scheduleSave(ms: number) {
   }
 }
 
-/** Autosave the working copy. */
-async function save(withThumb: boolean) {
+/** Background persistence: autosave into the sheet, or keep the recovery copy. */
+async function writeBack(withThumb: boolean) {
   clearTimeout(saveTimer);
   saveTimer = 0;
   const sheet = board.sheet;
-  if (!state.stored && sheet.marks.length === 0 && sheet.bg === PAPERS[0] && !sheet.name) return; // no blank sheets in the gallery
+  const rev = changeRev;
   try {
-    let thumb: Blob | undefined;
-    if (withThumb && state.thumbDirty) {
-      thumb = await makeThumb(sheet);
-      state.thumbDirty = false;
-    }
-    sheet.dirty = state.dirty;
-    await persist(sheet, { thumb });
-    if (!state.stored) {
-      state.stored = true;
+    if (autosaving()) {
+      if (!sheet.savedAt && sheet.marks.length === 0 && sheet.bg === PAPERS[0]) return; // no blank sheets in the list
+      let thumb: Blob | undefined;
+      if (withThumb && state.thumbDirty) {
+        thumb = await makeThumb(sheet);
+        if (rev === changeRev) state.thumbDirty = false;
+      }
+      sheet.savedAt = Date.now();
+      await persist(sheet, { thumb, clearRecovery: true });
       writePref("current", sheet.id);
+      if (rev === changeRev) state.dirty = false;
+      sync();
+    } else if (state.dirty) {
+      await putRecovery(sheet);
     }
   } catch {
     failSave();
@@ -146,19 +165,21 @@ function failSave() {
   toast(t.saveFailed, 4000);
 }
 
-/** Explicit save: store the snapshot. */
+/** Explicit save: store the sheet in the list. */
 async function commit(): Promise<boolean> {
   clearTimeout(saveTimer);
   saveTimer = 0;
   const sheet = board.sheet;
+  const rev = changeRev;
   try {
     const thumb = await makeThumb(sheet);
     sheet.savedAt = Date.now();
-    sheet.dirty = false;
-    state.dirty = false;
-    state.thumbDirty = false;
-    await persist(sheet, { commit: true, thumb });
-    state.stored = true;
+    await persist(sheet, { thumb, clearRecovery: true });
+    if (rev === changeRev) {
+      state.dirty = false;
+      state.thumbDirty = false;
+    }
+    state.detached = false;
     writePref("current", sheet.id);
     sync();
     return true;
@@ -172,26 +193,32 @@ function defaultName() {
   return new Intl.DateTimeFormat(LANG, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }).format(new Date());
 }
 
-async function saveDoc() {
+async function saveDoc(): Promise<boolean> {
   closePops();
   if (!board.sheet.name) return saveAs(false);
-  if (!state.dirty && board.sheet.savedAt) return toast(t.upToDate);
-  if (await commit()) toast(t.saved);
+  if (!state.dirty && board.sheet.savedAt) {
+    toast(t.upToDate);
+    return true;
+  }
+  const ok = await commit();
+  if (ok) toast(t.saved);
+  return ok;
 }
 
-/** copy=true: always a new sheet (keeps the original as last saved). */
-async function saveAs(copy = true) {
+/** copy=true: store a new sheet; the stored original stays as it was. */
+async function saveAs(copy = true): Promise<boolean> {
   closePops();
   const sheet = board.sheet;
   const suggestion = sheet.name ? (copy ? `${sheet.name} ${t.copy}` : sheet.name) : defaultName();
   const name = await ask(t.saveAsTitle, suggestion, t.save);
-  if (name === null) return;
+  if (name === null) return false;
   const label = name || t.untitled;
   if (!copy || !sheet.savedAt) {
     // First save of this sheet: just name and store it.
     sheet.name = name;
-    if (await commit()) toast(`${t.savedAs} „${label}“`);
-    return;
+    const ok = await commit();
+    if (ok) toast(`${t.savedAs} „${label}“`);
+    return ok;
   }
   const old = { id: sheet.id, name: sheet.name, created: sheet.created, savedAt: sheet.savedAt };
   sheet.id = newId();
@@ -199,15 +226,10 @@ async function saveAs(copy = true) {
   sheet.created = Date.now();
   if (!(await commit())) {
     Object.assign(sheet, old);
-    return;
-  }
-  // The original keeps its last saved version; unsaved edits moved to the copy.
-  const snap = await loadSaved(old.id).catch(() => undefined);
-  if (snap) {
-    snap.dirty = false;
-    await persist(snap, { thumb: await makeThumb(snap) }).catch(() => {});
+    return false;
   }
   toast(`${t.savedAs} „${label}“`);
+  return true;
 }
 
 async function renameCurrent() {
@@ -216,21 +238,41 @@ async function renameCurrent() {
   const name = await ask(t.renameTitle, sheet.name, t.rename);
   if (name === null) return;
   sheet.name = name;
-  await save(false);
   if (sheet.savedAt) await renameSheet(sheet.id, name).catch(() => {});
+  if (state.dirty) scheduleSave(200);
   sync();
 }
 
 async function revertDoc() {
   closePops();
-  const snap = await loadSaved(board.sheet.id);
+  const snap = await loadSheet(board.sheet.id);
   if (!snap) return;
   if (!(await confirm(t.revertTitle, t.revertBody, t.discard))) return;
-  snap.dirty = false;
-  await persist(snap);
-  await openSheet(snap, true);
-  state.thumbDirty = true;
-  scheduleSave(300);
+  await clearRecovery().catch(() => {});
+  await openSheet(snap);
+}
+
+/**
+ * Before the open sheet is replaced: with unsaved changes, ask Save / Discard / Cancel.
+ * Returns false when the user cancels.
+ */
+async function leaveCurrent(): Promise<boolean> {
+  const sheet = board.sheet;
+  if (autosaving()) {
+    await writeBack(true);
+    return true;
+  }
+  if (!state.dirty || (board.isEmpty && !sheet.savedAt)) {
+    await clearRecovery().catch(() => {});
+    return true;
+  }
+  const choice = await choose(t.unsavedTitle, t.unsavedBody.replace("{name}", sheet.name || t.untitled), t.save, t.discard);
+  if (choice === "cancel") return false;
+  if (choice === "alt") {
+    await clearRecovery().catch(() => {});
+    return true;
+  }
+  return sheet.name ? commit() : saveAs(false);
 }
 
 function pageRegion(sheet: Sheet): BBox {
@@ -254,28 +296,29 @@ function makeThumb(sheet: Sheet): Promise<Blob | undefined> {
 }
 
 const flush = () => {
-  if (state.thumbDirty || saveTimer) void save(true);
+  if (saveTimer || state.dirty) void writeBack(false);
 };
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "hidden") flush();
 });
 window.addEventListener("pagehide", flush);
 
-async function openSheet(sheet: Sheet, stored: boolean) {
+/** Replace the open sheet. `dirty`: it carries unsaved changes (restored from recovery). */
+async function openSheet(sheet: Sheet, dirty = false) {
   closeComposer();
   sheet.name = sheet.name ?? "";
   board.load(sheet);
-  state.stored = stored;
-  state.dirty = !!sheet.dirty;
-  state.thumbDirty = !stored;
+  state.dirty = dirty;
+  state.detached = false;
+  state.thumbDirty = dirty || !sheet.savedAt;
   writePref("current", sheet.id);
   sync();
 }
 
 async function createSheet() {
   closePops();
-  await save(true);
-  await openSheet(newSheet(board.sheet.bg), false);
+  if (!(await leaveCurrent())) return;
+  await openSheet(newSheet(board.sheet.bg));
   closeGallery();
 }
 
@@ -310,16 +353,15 @@ function sync() {
   }
   hint.classList.toggle("on-dark", luminance(board.sheet.bg) < 140);
 
-  $("#item-fingers").hidden = !input.penSeen;
-
   const sh = board.sheet;
   $("#doc-name").textContent = sh.name || t.untitled;
   const docEl = $("#doc");
   docEl.classList.toggle("untitled", !sh.name);
   docEl.classList.toggle("doc-light", luminance(sh.bg) >= 140);
-  $("#doc-dot").hidden = !state.dirty;
-  $("#save-dot").hidden = !state.dirty;
-  $("#item-revert").hidden = !(sh.savedAt && state.dirty);
+  const unsaved = isUnsaved();
+  $("#doc-dot").hidden = !unsaved;
+  $("#save-dot").hidden = !unsaved;
+  $("#item-revert").hidden = !(sh.savedAt && unsaved);
   syncZoom();
 }
 
@@ -585,14 +627,19 @@ function freeThumbs() {
 async function showGallery() {
   closePops();
   closeComposer();
-  await save(true);
-  galleryItems = await listSheets().catch(() => []);
-  freeThumbs();
+  if (autosaving()) await writeBack(true);
   searchEl.value = "";
-  searchEl.parentElement!.hidden = galleryItems.length < 5;
-  renderGallery();
+  await refreshGallery();
   gallery.hidden = false;
   $<HTMLButtonElement>('[data-act="gallery-close"]').focus({ preventScroll: true });
+}
+
+/** Reload the list from storage (no side effects on the open sheet). */
+async function refreshGallery() {
+  galleryItems = await listSheets().catch(() => []);
+  freeThumbs();
+  searchEl.parentElement!.hidden = galleryItems.length < 5;
+  renderGallery();
 }
 
 function renderGallery() {
@@ -616,9 +663,10 @@ function renderGallery() {
 
   list.replaceChildren(
     ...items.map((m) => {
+      const isCurrent = m.id === board.sheet.id;
       const li = document.createElement("li");
       li.className = "card";
-      if (m.id === board.sheet.id) li.setAttribute("aria-current", "true");
+      if (isCurrent) li.setAttribute("aria-current", "true");
 
       const open = document.createElement("button");
       open.className = "card-open";
@@ -635,7 +683,7 @@ function renderGallery() {
       };
       if (m.thumb) showThumb(m.thumb);
       else if (m.n > 0) {
-        // Missing preview (e.g. app closed mid-save): build it once and store it.
+        // Missing preview (e.g. autosave wrote the sheet before its preview was ready): build it once.
         void loadSheet(m.id).then(async (sheet) => {
           if (!sheet) return;
           const blob = await makeThumb(sheet);
@@ -645,9 +693,10 @@ function renderGallery() {
         });
       }
       open.addEventListener("click", async () => {
-        if (m.id !== board.sheet.id) {
+        if (!isCurrent) {
+          if (!(await leaveCurrent())) return;
           const sheet = await loadSheet(m.id);
-          if (sheet) await openSheet(sheet, true);
+          if (sheet) await openSheet(sheet);
         }
         closeGallery();
       });
@@ -661,11 +710,10 @@ function renderGallery() {
       name.textContent = m.name || t.untitled;
       const date = document.createElement("span");
       date.className = "card-date";
-      const tag = !m.savedAt ? t.draft : m.dirty ? t.changed : "";
-      if (tag) {
+      if (isCurrent && isUnsaved()) {
         const b = document.createElement("span");
         b.className = "tag";
-        b.textContent = tag;
+        b.textContent = t.changed;
         date.append(b);
       }
       date.append(fmt.format(m.updated));
@@ -676,23 +724,29 @@ function renderGallery() {
       const ren = iconButton("#i-rename", t.rename, async () => {
         const next = await ask(t.renameTitle, m.name, t.rename);
         if (next === null) return;
-        if (m.id === board.sheet.id) {
+        if (isCurrent) {
           board.sheet.name = next;
-          await save(false);
+          if (state.dirty) scheduleSave(200);
           sync();
         }
         await renameSheet(m.id, next).catch(() => {});
-        await showGallery();
+        await refreshGallery();
       });
       const del = iconButton("#i-trash", t.delete, async () => {
-        if (!(await confirm(t.deleteTitle, t.deleteBody, t.delete))) return;
+        if (!(await confirm(t.deleteTitle, isCurrent ? t.deleteCurrentBody : t.deleteBody, t.delete))) return;
         await deleteSheet(m.id);
-        if (m.id === board.sheet.id) {
-          const rest = (await listSheets()).filter((x) => x.id !== m.id);
-          const next = rest[0] && (await loadSheet(rest[0].id));
-          await openSheet(next || newSheet(PAPERS[0]), !!next);
+        if (isCurrent) {
+          // Only the saved copy is removed; the drawing on screen carries on as an unsaved sheet.
+          const sheet = board.sheet;
+          sheet.savedAt = undefined;
+          sheet.name = "";
+          state.detached = true;
+          state.dirty = !board.isEmpty;
+          state.thumbDirty = true;
+          if (state.dirty) await putRecovery(sheet).catch(() => {});
+          sync();
         }
-        await showGallery();
+        await refreshGallery();
       });
       actions.append(ren, del);
       meta.append(text, actions);
@@ -754,6 +808,44 @@ function confirm(title: string, body: string, ok: string): Promise<boolean> {
   });
 }
 
+/** Three-way dialog: primary ("yes"), secondary ("alt", e.g. Discard) or Cancel. */
+function choose(title: string, body: string, yesLabel: string, altLabel: string): Promise<"yes" | "alt" | "cancel"> {
+  const modal = $("#confirm");
+  $("#confirm-title").textContent = title;
+  $("#confirm-body").textContent = body;
+  const yes = $<HTMLButtonElement>("#confirm-yes");
+  const alt = $<HTMLButtonElement>("#confirm-alt");
+  const no = $<HTMLButtonElement>("#confirm-no");
+  yes.textContent = yesLabel;
+  yes.className = "cta";
+  alt.textContent = altLabel;
+  alt.hidden = false;
+  modal.hidden = false;
+  yes.focus();
+  return new Promise((resolve) => {
+    const finish = (v: "yes" | "alt" | "cancel") => {
+      modal.hidden = true;
+      alt.hidden = true;
+      yes.onclick = alt.onclick = no.onclick = modal.onclick = null;
+      document.removeEventListener("keydown", esc, true);
+      resolve(v);
+    };
+    const esc = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        finish("cancel");
+      }
+    };
+    document.addEventListener("keydown", esc, true);
+    yes.onclick = () => finish("yes");
+    alt.onclick = () => finish("alt");
+    no.onclick = () => finish("cancel");
+    modal.onclick = (e) => {
+      if (e.target === modal) finish("cancel");
+    };
+  });
+}
+
 function ask(title: string, value: string, ok: string): Promise<string | null> {
   const form = $<HTMLFormElement>("#prompt");
   const input = $<HTMLInputElement>("#prompt-input");
@@ -807,8 +899,7 @@ function toast(text: string, ms = 2400, action?: { label: string; run: () => voi
 
 // ------------------------------------------------------------------ export
 
-async function shareImage() {
-  closePops();
+async function renderExport(): Promise<{ blob: Blob; name: string } | null> {
   const sheet = board.sheet;
   const content = union(sheet.marks);
   const { w, h } = board.size;
@@ -821,11 +912,30 @@ async function shareImage() {
   const scale = Math.min(2, 8192 / Math.max(rw, rh), Math.sqrt(16_000_000 / (rw * rh)));
   const canvas = renderRegion(sheet.marks, sheet.bg, r, scale);
   const blob = await new Promise<Blob | null>((res) => canvas.toBlob(res, "image/png"));
-  if (!blob) return;
+  if (!blob) return null;
   const d = new Date();
   const p = (n: number) => String(n).padStart(2, "0");
-  const name = `jotter-${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}.png`;
-  const file = new File([blob], name, { type: "image/png" });
+  const base = (sheet.name || "jotter").replace(/[\\/:*?"<>|]+/g, "-").trim() || "jotter";
+  return { blob, name: `${base}-${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}.png` };
+}
+
+function saveBlob(blob: Blob, name: string) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = name;
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+}
+
+/** Share sheet where the device has one; plain download otherwise. */
+async function shareImage() {
+  closePops();
+  const out = await renderExport();
+  if (!out) return;
+  const file = new File([out.blob], out.name, { type: "image/png" });
   if (navigator.canShare?.({ files: [file] })) {
     try {
       await navigator.share({ files: [file], title: "Jotter" });
@@ -834,12 +944,15 @@ async function shareImage() {
       if (err instanceof DOMException && err.name === "AbortError") return;
     }
   }
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = name;
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(url), 2000);
+  saveBlob(out.blob, out.name);
+  toast(t.imageSaved);
+}
+
+/** Always a file download (Settings). */
+async function downloadImage() {
+  const out = await renderExport();
+  if (!out) return;
+  saveBlob(out.blob, out.name);
   toast(t.imageSaved);
 }
 
@@ -861,13 +974,62 @@ function setChrome(off: boolean) {
 let installEvent: (Event & { prompt(): Promise<void> }) | null = null;
 const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
 const standalone = matchMedia("(display-mode: standalone)").matches || (navigator as { standalone?: boolean }).standalone === true;
-$("#item-install").hidden = !(isIOS && !standalone);
+$("#set-install").hidden = !(isIOS && !standalone);
 window.addEventListener("beforeinstallprompt", (e) => {
   e.preventDefault();
   installEvent = e as typeof installEvent;
-  $("#item-install").hidden = false;
+  $("#set-install").hidden = false;
 });
-window.addEventListener("appinstalled", () => ($("#item-install").hidden = true));
+window.addEventListener("appinstalled", () => ($("#set-install").hidden = true));
+
+// ------------------------------------------------------------------ settings
+
+const settingsEl = $("#settings");
+const setAutosave = $<HTMLButtonElement>("#set-autosave");
+const setFingers = $<HTMLButtonElement>("#set-fingers");
+const setLang = $<HTMLSelectElement>("#set-lang");
+
+function renderSettings() {
+  setAutosave.setAttribute("aria-checked", String(settings.autosave));
+  setLang.value = readPref<string>("lang", "auto");
+  setFingers.hidden = !(input.penSeen || readPref<boolean>("penEver", false));
+  setFingers.setAttribute("aria-checked", String(!input.penSeen));
+}
+
+function openSettings() {
+  closePops();
+  renderSettings();
+  settingsEl.hidden = false;
+  setAutosave.focus({ preventScroll: true });
+}
+
+function closeSettings() {
+  settingsEl.hidden = true;
+}
+
+settingsEl.addEventListener("click", (e) => {
+  if (e.target === settingsEl) closeSettings();
+});
+
+setAutosave.addEventListener("click", async () => {
+  settings.autosave = !settings.autosave;
+  writePref("autosave", settings.autosave);
+  renderSettings();
+  // Turning it on stores what is open right now.
+  if (settings.autosave && state.dirty) await writeBack(true);
+  sync();
+});
+
+setFingers.addEventListener("click", () => {
+  input.setPenSeen(!input.penSeen); // on = fingers draw, so palm rejection flips
+  renderSettings();
+});
+
+setLang.addEventListener("change", () => {
+  writePref("lang", setLang.value);
+  flush();
+  window.setTimeout(() => location.reload(), 150);
+});
 
 // ------------------------------------------------------------------ actions
 
@@ -913,17 +1075,15 @@ const actions: Record<string, () => void> = {
     }
   },
   chrome: () => setChrome(!state.chromeOff),
-  fingers: () => {
-    closePops();
-    input.resetPen();
-    sync();
-  },
+  settings: openSettings,
+  "settings-close": closeSettings,
+  download: () => void downloadImage(),
   install: async () => {
     closePops();
     if (installEvent) {
       await installEvent.prompt();
       installEvent = null;
-      $("#item-install").hidden = true;
+      $("#set-install").hidden = true;
     } else toast(t.iosInstall, 6000);
   },
   "cancel-text": closeComposer,
@@ -941,6 +1101,7 @@ app.addEventListener("click", (e) => {
 
 window.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
+    if (!settingsEl.hidden) return closeSettings();
     if (openPop) return closePops();
     if (!gallery.hidden) return closeGallery();
     if (state.chromeOff) return setChrome(false);
@@ -982,9 +1143,16 @@ window.addEventListener("keydown", (e) => {
 // ------------------------------------------------------------------ boot
 
 async function boot() {
+  // Unsaved work from before a reload / killed tab comes back first.
+  const rec = await loadRecovery().catch(() => undefined);
+  if (rec) {
+    await openSheet(rec, true);
+    if (settings.autosave) scheduleSave(300);
+    return;
+  }
   const id = readPref<string | null>("current", null);
   const sheet = id ? await loadSheet(id).catch(() => undefined) : undefined;
-  if (sheet) await openSheet(sheet, true);
+  if (sheet) await openSheet(sheet);
   else sync();
 }
 

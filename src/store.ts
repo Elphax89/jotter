@@ -2,12 +2,12 @@ import type { Sheet, SheetMeta } from "./types";
 
 /**
  * Local-only storage in IndexedDB. Nothing ever leaves the device.
- *  - "sheets": working copy of every sheet, autosaved while you draw
- *  - "saved":  snapshot from the last explicit "Save" (for revert / Save as)
- *  - "index":  small gallery entries + thumbnail, so the gallery never loads stroke data
+ *  - "sheets":   saved sheets (what the list shows)
+ *  - "index":    small list entries + thumbnail, so the list never loads stroke data
+ *  - "recovery": the one unsaved working copy, only to survive a killed tab / reload
  */
 const DB_NAME = "jotter";
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 
 let dbp: Promise<IDBDatabase> | null = null;
 
@@ -20,34 +20,25 @@ function db(): Promise<IDBDatabase> {
         const tx = req.transaction!;
         if (!d.objectStoreNames.contains("sheets")) d.createObjectStore("sheets", { keyPath: "id" });
         if (!d.objectStoreNames.contains("index")) d.createObjectStore("index", { keyPath: "id" });
-        if (!d.objectStoreNames.contains("saved")) d.createObjectStore("saved", { keyPath: "id" });
-        if (ev.oldVersion === 1) {
-          // v1 had autosave only: treat every existing sheet as saved.
-          const sheets = tx.objectStore("sheets");
-          const saved = tx.objectStore("saved");
-          const index = tx.objectStore("index");
-          sheets.openCursor().onsuccess = (e) => {
-            const cur = (e.target as IDBRequest<IDBCursorWithValue | null>).result;
-            if (!cur) return;
-            const s = cur.value as Sheet;
-            s.name = s.name ?? "";
-            s.savedAt = s.updated;
-            s.dirty = false;
-            cur.update(s);
-            saved.put(s);
-            cur.continue();
+        if (!d.objectStoreNames.contains("recovery")) d.createObjectStore("recovery");
+        if (ev.oldVersion >= 1 && ev.oldVersion < 3) {
+          // Older versions autosaved everything. Keep every sheet, with its latest content, as saved.
+          const touch = (name: "sheets" | "index") => {
+            tx.objectStore(name).openCursor().onsuccess = (e) => {
+              const cur = (e.target as IDBRequest<IDBCursorWithValue | null>).result;
+              if (!cur) return;
+              const v = cur.value as Sheet & { dirty?: boolean };
+              v.name = v.name ?? "";
+              v.savedAt = v.savedAt ?? v.updated;
+              delete v.dirty;
+              cur.update(v);
+              cur.continue();
+            };
           };
-          index.openCursor().onsuccess = (e) => {
-            const cur = (e.target as IDBRequest<IDBCursorWithValue | null>).result;
-            if (!cur) return;
-            const m = cur.value as SheetMeta;
-            m.name = m.name ?? "";
-            m.savedAt = m.updated;
-            m.dirty = false;
-            cur.update(m);
-            cur.continue();
-          };
+          touch("sheets");
+          touch("index");
         }
+        if (d.objectStoreNames.contains("saved")) d.deleteObjectStore("saved");
       };
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => reject(req.error);
@@ -80,14 +71,13 @@ function toMeta(sheet: Sheet, thumb: Blob | undefined): SheetMeta {
     created: sheet.created,
     updated: sheet.updated,
     savedAt: sheet.savedAt,
-    dirty: sheet.dirty,
     bg: sheet.bg,
     n: sheet.marks.length,
     thumb,
   };
 }
 
-/** Load the working copy (what you see when you open a sheet). */
+/** Load a saved sheet. */
 export async function loadSheet(id: string): Promise<Sheet | undefined> {
   const d = await db();
   const s = (await get(d.transaction("sheets").objectStore("sheets").get(id))) as Sheet | undefined;
@@ -95,21 +85,15 @@ export async function loadSheet(id: string): Promise<Sheet | undefined> {
   return s;
 }
 
-/** Load the snapshot of the last explicit save. */
-export async function loadSaved(id: string): Promise<Sheet | undefined> {
-  const d = await db();
-  return get(d.transaction("saved").objectStore("saved").get(id)) as Promise<Sheet | undefined>;
-}
-
 /**
- * Write a sheet. `commit` also stores the snapshot ("Save").
- * Without `commit` only the working copy is updated (autosave).
+ * Store a sheet in the list. `clearRecovery` also drops the unsaved working copy
+ * (use it when the sheet being written is the one that is open).
  */
-export async function persist(sheet: Sheet, opts: { commit?: boolean; thumb?: Blob } = {}) {
+export async function persist(sheet: Sheet, opts: { thumb?: Blob; clearRecovery?: boolean } = {}) {
   const d = await db();
-  const tx = d.transaction(["sheets", "saved", "index"], "readwrite");
+  const tx = d.transaction(["sheets", "index", "recovery"], "readwrite");
   tx.objectStore("sheets").put(sheet);
-  if (opts.commit) tx.objectStore("saved").put(sheet);
+  if (opts.clearRecovery) tx.objectStore("recovery").delete("current");
   const index = tx.objectStore("index");
   const prev = (await get(index.get(sheet.id))) as SheetMeta | undefined;
   index.put(toMeta(sheet, opts.thumb ?? prev?.thumb));
@@ -119,8 +103,8 @@ export async function persist(sheet: Sheet, opts: { commit?: boolean; thumb?: Bl
 /** Rename without touching strokes (works on sheets that aren't open). */
 export async function renameSheet(id: string, name: string) {
   const d = await db();
-  const tx = d.transaction(["sheets", "saved", "index"], "readwrite");
-  for (const store of ["sheets", "saved", "index"] as const) {
+  const tx = d.transaction(["sheets", "index"], "readwrite");
+  for (const store of ["sheets", "index"] as const) {
     const os = tx.objectStore(store);
     const rec = (await get(os.get(id))) as { name: string } | undefined;
     if (rec) os.put({ ...rec, name });
@@ -137,10 +121,30 @@ export async function listSheets(): Promise<SheetMeta[]> {
 
 export async function deleteSheet(id: string) {
   const d = await db();
-  const tx = d.transaction(["sheets", "saved", "index"], "readwrite");
+  const tx = d.transaction(["sheets", "index"], "readwrite");
   tx.objectStore("sheets").delete(id);
-  tx.objectStore("saved").delete(id);
   tx.objectStore("index").delete(id);
+  await done(tx);
+}
+
+export async function putRecovery(sheet: Sheet) {
+  const d = await db();
+  const tx = d.transaction("recovery", "readwrite");
+  tx.objectStore("recovery").put(sheet, "current");
+  await done(tx);
+}
+
+export async function loadRecovery(): Promise<Sheet | undefined> {
+  const d = await db();
+  const s = (await get(d.transaction("recovery").objectStore("recovery").get("current"))) as Sheet | undefined;
+  if (s) s.name = s.name ?? "";
+  return s;
+}
+
+export async function clearRecovery() {
+  const d = await db();
+  const tx = d.transaction("recovery", "readwrite");
+  tx.objectStore("recovery").delete("current");
   await done(tx);
 }
 
@@ -150,7 +154,7 @@ export function newId() {
 
 export function newSheet(bg: string): Sheet {
   const now = Date.now();
-  return { id: newId(), name: "", created: now, updated: now, dirty: false, bg, marks: [], view: { x: 0, y: 0, z: 1 } };
+  return { id: newId(), name: "", created: now, updated: now, bg, marks: [], view: { x: 0, y: 0, z: 1 } };
 }
 
 /** Ask the browser not to evict our data under storage pressure. */

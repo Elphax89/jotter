@@ -19,22 +19,25 @@ Kostenlos, ohne Konto, ohne Werbung. Funktioniert offline und lässt sich wie ei
 - 🎨 14 Farben + eigene Farbe, 5 Papierfarben + eigene
 - 🔍 **Zoomen & Verschieben** mit zwei Fingern – Zeichnung wird beim Drehen des Handys nie verzerrt
 - 📚 **Blätter speichern & öffnen:** Öffnen, Speichern (überschreibt), Speichern unter (neue Kopie), Umbenennen – mit Name und Datum, als Raster oder Liste, sortier- und durchsuchbar
-- 🛟 **Automatischer Entwurf:** Jede Änderung wird sofort gesichert, auch wenn der Browser die App beendet
+- 🛟 **Nichts geht verloren:** Ungespeicherte Arbeit wird im Hintergrund gesichert und nach einem Neuladen wiederhergestellt
+- ⚙️ **Einstellungen:** Autospeichern (an/aus), Sprache, Handballen-Erkennung, Als Bild herunterladen
 - 📤 **Als Bild teilen/speichern** (PNG, automatisch auf die Zeichnung zugeschnitten)
 - 📴 **Offline** nach dem ersten Besuch, **installierbar** auf dem Homescreen
-- 🌍 Deutsch & Englisch (automatisch nach Gerätesprache)
+- 🌍 Englisch & Deutsch (folgt der Gerätesprache, Standard Englisch; änderbar in den Einstellungen)
 
 ## Blätter speichern und weiterzeichnen
 
 | Aktion | Was passiert |
 |---|---|
-| **Speichern** (Diskette oben rechts) | Speichert das Blatt unter seinem Namen und überschreibt die letzte gespeicherte Version. Hat das Blatt noch keinen Namen, fragt Jotter danach. Ein oranger Punkt zeigt ungespeicherte Änderungen. |
+| **Speichern** (Diskette oben rechts) | Speichert das Blatt unter seinem Namen und überschreibt die letzte gespeicherte Version. Hat das Blatt noch keinen Namen, fragt Jotter danach. Ein oranger Punkt zeigt ungespeicherte Änderungen. Mit **Autospeichern** (Einstellungen) passiert das automatisch. |
 | **Speichern unter …** (Menü „…“) | Legt eine neue Kopie unter neuem Namen an. Das Original bleibt wie zuletzt gespeichert. |
 | **Öffnen** (Symbol oben links) | Zeigt alle Blätter als Raster oder Liste mit Name und Datum. Antippen öffnet das Blatt zum Weiterzeichnen. |
 | **Umbenennen** | Tippe oben auf den Blattnamen oder auf das Stift-Symbol in der Übersicht. |
 | **Änderungen verwerfen** (Menü, nur bei Änderungen) | Setzt das Blatt auf die zuletzt gespeicherte Version zurück. |
 
-Zusätzlich sichert Jotter jede Änderung laufend als Entwurf. Auch ohne zu speichern geht nichts verloren, die Blätter erscheinen dann mit „Entwurf“ oder „Geändert“ in der Übersicht.
+**Autospeichern** ist standardmäßig aus (Einstellungen → Autospeichern). Dann erscheinen nur Blätter in der Übersicht, die du gespeichert hast. Ungespeicherte Arbeit wird trotzdem im Hintergrund gesichert und nach einem Neuladen wiederhergestellt. Beim Wechsel zu einem anderen Blatt fragt Jotter: Speichern, Verwerfen oder Abbrechen. Löschst du in der Übersicht das gerade offene Blatt, bleibt die Zeichnung als ungespeichertes Blatt erhalten.
+
+**Als Bild herunterladen:** Einstellungen → „Als Bild herunterladen“ (PNG, auf die Zeichnung zugeschnitten).
 
 ## Gesten
 
@@ -45,14 +48,14 @@ Zusätzlich sichert Jotter jede Änderung laufend als Entwurf. Auch ohne zu spei
 | 2-Finger-Tipp | rückgängig |
 | 3-Finger-Tipp | wiederholen |
 | aktives Werkzeug nochmal antippen | dessen Optionen (Stärke, Form) |
-| Stift erkannt | Finger zeichnen nicht mehr, nur noch zoomen & schieben (Handballen-Erkennung). Umschaltbar im Menü „…“ |
+| Stift erkannt | Finger zeichnen nicht mehr, nur noch zoomen & schieben (Handballen-Erkennung). Umschaltbar in den Einstellungen |
 
 **Tastatur:** `Strg/⌘+S` speichern · `Strg/⌘+Umschalt+S` speichern unter · `Strg/⌘+O` öffnen · `Strg/⌘+Z` rückgängig · `Strg/⌘+Umschalt+Z` wiederholen · `P` Stift · `S` Formen · `E` Radierer · `T` Text · `[` `]` Stärke · `0` Ansicht einpassen · `Leertaste`+Ziehen verschieben · `Umschalt` beim Formzeichnen: Quadrat/Kreis/45°
 
 ## Als App installieren
 
 - **iPhone/iPad (Safari):** Teilen → „Zum Home-Bildschirm“
-- **Android (Chrome):** Menü „…“ in Jotter → „Als App installieren“
+- **Android (Chrome):** Einstellungen in Jotter → „Als App installieren“
 - **Computer (Chrome/Edge):** Installieren-Symbol in der Adressleiste
 
 ## Datenschutz
@@ -128,9 +131,10 @@ Jeder weitere Push auf `main` aktualisiert die Seite automatisch; Nutzer bekomme
 - Two-finger pinch to zoom & pan; two-finger tap = undo, three-finger tap = redo
 - Palm rejection once a stylus is detected
 - Open / Save (overwrite) / Save as / Rename, with name and date, grid or list view, search and sort
-- Continuous draft autosave, nothing is lost if the browser closes the app
+- Optional Autosave (Settings, off by default); unsaved work is always recovered after a reload
+- Settings: autosave, language, palm rejection, download as PNG
 - Share/save as PNG, cropped to the drawing
-- Offline service worker, installable PWA, German & English UI
+- Offline service worker, installable PWA, English & German UI (follows device language)
 
 ```bash
 npm install

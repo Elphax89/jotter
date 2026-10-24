@@ -65,10 +65,8 @@ export interface Sheet {
   created: number;
   /** last change (autosave) */
   updated: number;
-  /** time of the last explicit "Save"; unset = never saved */
+  /** time it was stored in the list; unset = not saved (yet) */
   savedAt?: number;
-  /** changed since the last explicit save */
-  dirty: boolean;
   bg: string;
   marks: Mark[];
   view: View;
@@ -81,7 +79,6 @@ export interface SheetMeta {
   created: number;
   updated: number;
   savedAt?: number;
-  dirty: boolean;
   bg: string;
   n: number;
   thumb?: Blob;

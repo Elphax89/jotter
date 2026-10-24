@@ -1,5 +1,18 @@
+import { readPref } from "./store";
+
 const de = {
   sheets: "Blätter",
+  settings: "Einstellungen",
+  autosave: "Automatisch speichern",
+  autosaveHint: "Änderungen sofort im Blatt sichern. Aus: nur mit „Speichern“.",
+  language: "Sprache",
+  langAuto: "Automatisch",
+  download: "Als Bild herunterladen",
+  downloadHint: "PNG-Datei, auf die Zeichnung zugeschnitten",
+  unsavedTitle: "Ungespeicherte Änderungen",
+  unsavedBody: "„{name}“ hat Änderungen, die noch nicht gespeichert sind.",
+  deleteCurrentBody: "Das Blatt wird aus der Liste gelöscht. Deine aktuelle Zeichnung bleibt als ungespeichertes Blatt offen.",
+  noSheets: "Noch keine gespeicherten Blätter. Tippe auf das Speichern-Symbol, um ein Blatt hier abzulegen.",
   open: "Öffnen",
   save: "Speichern",
   saveAs: "Speichern unter …",
@@ -15,7 +28,6 @@ const de = {
   revertTitle: "Änderungen verwerfen?",
   revertBody: "Das Blatt wird auf die zuletzt gespeicherte Version zurückgesetzt.",
   discard: "Verwerfen",
-  draft: "Entwurf",
   changed: "Geändert",
   search: "Suchen",
   sortRecent: "Zuletzt",
@@ -23,7 +35,6 @@ const de = {
   viewGrid: "Raster",
   viewList: "Liste",
   noResults: "Nichts gefunden",
-  noSheets: "Noch keine Blätter. Zeichne etwas, es wird automatisch als Entwurf gesichert.",
   copy: "Kopie",
   sheetsCount: "Blätter",
   undo: "Rückgängig",
@@ -84,6 +95,17 @@ type Dict = typeof de;
 
 const en: Dict = {
   sheets: "Sheets",
+  settings: "Settings",
+  autosave: "Autosave",
+  autosaveHint: "Write changes into the sheet right away. Off: only when you tap Save.",
+  language: "Language",
+  langAuto: "Automatic",
+  download: "Download as image",
+  downloadHint: "PNG file, cropped to the drawing",
+  unsavedTitle: "Unsaved changes",
+  unsavedBody: "“{name}” has changes that are not saved yet.",
+  deleteCurrentBody: "The sheet is removed from the list. Your current drawing stays open as an unsaved sheet.",
+  noSheets: "No saved sheets yet. Tap the save icon to put a sheet here.",
   open: "Open",
   save: "Save",
   saveAs: "Save as…",
@@ -99,7 +121,6 @@ const en: Dict = {
   revertTitle: "Discard changes?",
   revertBody: "The sheet goes back to the last saved version.",
   discard: "Discard",
-  draft: "Draft",
   changed: "Changed",
   search: "Search",
   sortRecent: "Recent",
@@ -107,7 +128,6 @@ const en: Dict = {
   viewGrid: "Grid",
   viewList: "List",
   noResults: "Nothing found",
-  noSheets: "No sheets yet. Draw something, it is kept automatically as a draft.",
   copy: "copy",
   sheetsCount: "sheets",
   undo: "Undo",
@@ -164,7 +184,20 @@ const en: Dict = {
   papers: ["Natural", "White", "Mist", "Sand", "Night"],
 };
 
-const lang = (navigator.language || "de").toLowerCase().startsWith("de") ? "de" : "en";
+/** Language: the setting wins; otherwise the first supported entry of the device's language list; otherwise English. */
+function detect(): "de" | "en" {
+  const pref = readPref<string>("lang", "auto");
+  if (pref === "de" || pref === "en") return pref;
+  const list = navigator.languages?.length ? navigator.languages : [navigator.language];
+  for (const l of list) {
+    const x = (l || "").toLowerCase();
+    if (x.startsWith("de")) return "de";
+    if (x.startsWith("en")) return "en";
+  }
+  return "en";
+}
+
+const lang = detect();
 export const t: Dict = lang === "de" ? de : en;
 export const LANG = lang;
 

@@ -334,6 +334,11 @@ export function attachInput(stage: HTMLElement, deps: InputDeps) {
       penSeen = false;
       writeFlag();
     },
+    /** palm rejection on/off (on = fingers only zoom & pan) */
+    setPenSeen(v: boolean) {
+      penSeen = v;
+      writeFlag();
+    },
     get penSeen() {
       return penSeen;
     },

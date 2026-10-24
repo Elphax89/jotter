@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="de">
+<html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta
@@ -7,7 +7,7 @@
       content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover, interactive-widget=overlays-content"
     />
     <title>Jotter</title>
-    <meta name="description" content="Schnelle, offline-fähige Zeichen- und Notiz-App für Handy, Tablet und Desktop. Keine Anmeldung, keine Werbung, alles bleibt auf deinem Gerät." />
+    <meta name="description" content="Fast, offline-ready drawing and note app for phone, tablet and desktop. No account, no ads, everything stays on your device." />
     <meta name="theme-color" content="#141311" />
     <meta name="color-scheme" content="dark" />
     <meta name="darkreader-lock" />
@@ -43,6 +43,7 @@
         <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0" /><circle cx="12" cy="12" r="3" /></symbol>
         <symbol id="i-eye-off" viewBox="0 0 24 24"><path d="M10.733 5.076a10.744 10.744 0 0 1 11.205 6.575 1 1 0 0 1 0 .696 10.747 10.747 0 0 1-1.444 2.49" /><path d="M14.084 14.158a3 3 0 0 1-4.242-4.242" /><path d="M17.479 17.499a10.75 10.75 0 0 1-15.417-5.151 1 1 0 0 1 0-.696 10.75 10.75 0 0 1 4.446-5.143" /><path d="m2 2 20 20" /></symbol>
         <symbol id="i-download" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><path d="m7 10 5 5 5-5" /><path d="M12 15V3" /></symbol>
+        <symbol id="i-gear" viewBox="0 0 24 24"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" /><circle cx="12" cy="12" r="3" /></symbol>
         <symbol id="i-save" viewBox="0 0 24 24"><path d="M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z" /><path d="M17 21v-7a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7" /><path d="M7 3v4a1 1 0 0 0 1 1h7" /></symbol>
         <symbol id="i-save-as" viewBox="0 0 24 24"><path d="M13 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h10.2a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V12" /><path d="M7 3v4a1 1 0 0 0 1 1h7" /><path d="M18 16v6" /><path d="M15 19h6" /></symbol>
         <symbol id="i-list" viewBox="0 0 24 24"><path d="M8 6h13" /><path d="M8 12h13" /><path d="M8 18h13" /><path d="M3 6h.01" /><path d="M3 12h.01" /><path d="M3 18h.01" /></symbol>
@@ -54,15 +55,15 @@
     </svg>
 
     <main id="app" class="app">
-      <div id="stage" class="stage" aria-label="Zeichenfläche" role="img">
+      <div id="stage" class="stage" aria-label="Canvas" role="img">
         <canvas id="paper" class="layer" width="1" height="1"></canvas>
         <canvas id="ink" class="layer"></canvas>
         <canvas id="overlay" class="layer"></canvas>
       </div>
 
       <div id="hint" class="hint" hidden>
-        <p class="hint-1" data-i18n="hint">Einfach loszeichnen</p>
-        <p class="hint-2" data-i18n="hint2"></p>
+        <p class="hint-1" data-i18n="hint">Just start drawing</p>
+        <p class="hint-2" data-i18n="hint2">2 fingers: zoom & pan · 2-finger tap: undo</p>
       </div>
 
       <header class="bar bar-top chrome">
@@ -95,15 +96,15 @@
 
       <!-- Popovers -->
       <div id="pop-color" class="pop pop-bottom" role="dialog" data-i18n-label="color" hidden>
-        <p class="pop-label" data-i18n="color">Farbe</p>
+        <p class="pop-label" data-i18n="color">Colour</p>
         <div id="inks" class="swatches"></div>
-        <p class="pop-label" data-i18n="paper">Papier</p>
+        <p class="pop-label" data-i18n="paper">Paper</p>
         <div id="papers" class="swatches"></div>
       </div>
 
       <div id="pop-size" class="pop pop-bottom" role="dialog" data-i18n-label="size" hidden>
         <div class="size-head">
-          <p class="pop-label" id="size-title" data-i18n="size">Stärke</p>
+          <p class="pop-label" id="size-title" data-i18n="size">Size</p>
           <span id="size-value" class="size-value">8</span>
         </div>
         <div class="size-preview"><span id="size-preview"></span></div>
@@ -117,40 +118,40 @@
           <button class="btn" data-shape="rect" data-i18n-label="rect"><svg><use href="#i-rect" /></svg></button>
           <button class="btn" data-shape="ellipse" data-i18n-label="ellipse"><svg><use href="#i-ellipse" /></svg></button>
           <span class="sep" aria-hidden="true"></span>
-          <button class="btn chip" id="fill-toggle" aria-pressed="false" data-i18n="fill">Füllen</button>
+          <button class="btn chip" id="fill-toggle" aria-pressed="false" data-i18n="fill">Fill</button>
         </div>
       </div>
 
       <div id="pop-menu" class="pop pop-top menu" role="menu" hidden>
-        <button class="item" role="menuitem" data-act="gallery"><svg><use href="#i-grid" /></svg><span data-i18n="open">Öffnen</span></button>
-        <button class="item" role="menuitem" data-act="save"><svg><use href="#i-save" /></svg><span data-i18n="save">Speichern</span></button>
-        <button class="item" role="menuitem" data-act="save-as"><svg><use href="#i-save-as" /></svg><span data-i18n="saveAs">Speichern unter …</span></button>
-        <button class="item" role="menuitem" data-act="rename"><svg><use href="#i-rename" /></svg><span data-i18n="rename">Umbenennen</span></button>
-        <button class="item" role="menuitem" data-act="revert" id="item-revert" hidden><svg><use href="#i-undo2" /></svg><span data-i18n="revert">Änderungen verwerfen</span></button>
+        <button class="item" role="menuitem" data-act="gallery"><svg><use href="#i-grid" /></svg><span data-i18n="open">Open</span></button>
+        <button class="item" role="menuitem" data-act="save"><svg><use href="#i-save" /></svg><span data-i18n="save">Save</span></button>
+        <button class="item" role="menuitem" data-act="save-as"><svg><use href="#i-save-as" /></svg><span data-i18n="saveAs">Save as…</span></button>
+        <button class="item" role="menuitem" data-act="rename"><svg><use href="#i-rename" /></svg><span data-i18n="rename">Rename</span></button>
+        <button class="item" role="menuitem" data-act="revert" id="item-revert" hidden><svg><use href="#i-undo2" /></svg><span data-i18n="revert">Discard changes</span></button>
         <hr class="menu-sep" />
-        <button class="item" role="menuitem" data-act="new"><svg><use href="#i-plus" /></svg><span data-i18n="newSheet">Neues Blatt</span></button>
-        <button class="item" role="menuitem" data-act="share"><svg><use href="#i-share" /></svg><span data-i18n="share">Als Bild teilen</span></button>
-        <button class="item" role="menuitem" data-act="clear"><svg><use href="#i-trash" /></svg><span data-i18n="clear">Blatt leeren</span></button>
+        <button class="item" role="menuitem" data-act="new"><svg><use href="#i-plus" /></svg><span data-i18n="newSheet">New sheet</span></button>
+        <button class="item" role="menuitem" data-act="share"><svg><use href="#i-share" /></svg><span data-i18n="share">Share as image</span></button>
+        <button class="item" role="menuitem" data-act="clear"><svg><use href="#i-trash" /></svg><span data-i18n="clear">Clear sheet</span></button>
         <hr class="menu-sep" />
-        <button class="item" role="menuitem" data-act="fullscreen" id="item-full"><svg><use href="#i-max" /></svg><span id="full-label" data-i18n="fullscreen">Vollbild</span></button>
-        <button class="item" role="menuitem" data-act="chrome"><svg><use href="#i-eye-off" /></svg><span data-i18n="hideBars">Leisten ausblenden</span></button>
-        <button class="item" role="menuitemcheckbox" data-act="fingers" id="item-fingers" hidden><svg><use href="#i-hand" /></svg><span data-i18n="fingersDraw">Mit Finger zeichnen</span></button>
-        <button class="item" role="menuitem" data-act="install" id="item-install" hidden><svg><use href="#i-download" /></svg><span data-i18n="install">Als App installieren</span></button>
+        <button class="item" role="menuitem" data-act="fullscreen" id="item-full"><svg><use href="#i-max" /></svg><span id="full-label" data-i18n="fullscreen">Full screen</span></button>
+        <button class="item" role="menuitem" data-act="chrome"><svg><use href="#i-eye-off" /></svg><span data-i18n="hideBars">Hide toolbars</span></button>
+        <hr class="menu-sep" />
+        <button class="item" role="menuitem" data-act="settings"><svg><use href="#i-gear" /></svg><span data-i18n="settings">Settings</span></button>
       </div>
 
       <!-- Text composer -->
       <form id="composer" class="composer" hidden>
         <input id="composer-input" maxlength="200" enterkeyhint="done" autocomplete="off" autocorrect="off" data-i18n-ph="textPlaceholder" data-i18n-label="text" />
-        <button type="submit" class="cta" data-i18n="place">Setzen</button>
+        <button type="submit" class="cta" data-i18n="place">Place</button>
         <button type="button" class="btn" data-act="cancel-text" data-i18n-label="cancel"><svg><use href="#i-x" /></svg></button>
       </form>
 
       <!-- Gallery -->
       <section id="gallery" class="gallery" role="dialog" aria-modal="true" aria-labelledby="gallery-title" hidden>
         <header class="gallery-head">
-          <h1 id="gallery-title" data-i18n="sheets">Blätter</h1>
-          <button class="btn" id="view-toggle" data-act="view" aria-label="Ansicht"><svg><use id="view-icon" href="#i-list" /></svg></button>
-          <button class="cta" data-act="new"><svg><use href="#i-plus" /></svg><span data-i18n="newSheet">Neues Blatt</span></button>
+          <h1 id="gallery-title" data-i18n="sheets">Sheets</h1>
+          <button class="btn" id="view-toggle" data-act="view" aria-label="View"><svg><use id="view-icon" href="#i-list" /></svg></button>
+          <button class="cta" data-act="new"><svg><use href="#i-plus" /></svg><span data-i18n="newSheet">New sheet</span></button>
           <button class="btn" data-act="gallery-close" data-i18n-label="close"><svg><use href="#i-x" /></svg></button>
         </header>
         <div class="gallery-tools">
@@ -167,7 +168,8 @@
           <h2 id="confirm-title"></h2>
           <p id="confirm-body"></p>
           <div class="modal-actions">
-            <button type="button" class="ghost" id="confirm-no" data-i18n="cancel">Abbrechen</button>
+            <button type="button" class="ghost" id="confirm-no" data-i18n="cancel">Cancel</button>
+            <button type="button" class="ghost" id="confirm-alt" hidden></button>
             <button type="button" class="cta" id="confirm-yes"></button>
           </div>
         </div>
@@ -178,16 +180,49 @@
           <h2 id="prompt-title"></h2>
           <input id="prompt-input" class="text-input" maxlength="60" autocomplete="off" autocorrect="off" enterkeyhint="done" data-i18n-ph="namePlaceholder" data-i18n-label="namePlaceholder" />
           <div class="modal-actions">
-            <button type="button" class="ghost" id="prompt-no" data-i18n="cancel">Abbrechen</button>
+            <button type="button" class="ghost" id="prompt-no" data-i18n="cancel">Cancel</button>
             <button type="submit" class="cta" id="prompt-yes"></button>
           </div>
         </div>
       </form>
 
+      <div id="settings" class="modal" role="dialog" aria-modal="true" aria-labelledby="settings-title" hidden>
+        <div class="modal-card settings-card">
+          <header class="settings-head">
+            <h2 id="settings-title" data-i18n="settings">Settings</h2>
+            <button class="btn" data-act="settings-close" data-i18n-label="close"><svg><use href="#i-x" /></svg></button>
+          </header>
+          <button class="row" role="switch" id="set-autosave" aria-checked="false">
+            <span class="row-text"><b data-i18n="autosave">Autosave</b><small data-i18n="autosaveHint">Write changes into the sheet right away. Off: only when you tap Save.</small></span>
+            <span class="switch"><i></i></span>
+          </button>
+          <label class="row" for="set-lang">
+            <span class="row-text"><b data-i18n="language">Language</b></span>
+            <select id="set-lang">
+              <option value="auto" data-i18n="langAuto">Automatic</option>
+              <option value="en">English</option>
+              <option value="de">Deutsch</option>
+            </select>
+          </label>
+          <button class="row" role="switch" id="set-fingers" aria-checked="false" hidden>
+            <span class="row-text"><b data-i18n="fingersDraw">Draw with finger</b></span>
+            <span class="switch"><i></i></span>
+          </button>
+          <button class="row" data-act="download">
+            <span class="row-text"><b data-i18n="download">Download as image</b><small data-i18n="downloadHint">PNG file, cropped to the drawing</small></span>
+            <svg><use href="#i-download" /></svg>
+          </button>
+          <button class="row" data-act="install" id="set-install" hidden>
+            <span class="row-text"><b data-i18n="install">Install as app</b></span>
+            <svg><use href="#i-plus" /></svg>
+          </button>
+        </div>
+      </div>
+
       <div id="toast" class="toast" role="status" aria-live="polite" hidden><span id="toast-text"></span><button id="toast-action" type="button" hidden></button></div>
     </main>
 
-    <noscript>Jotter braucht JavaScript. / Jotter needs JavaScript.</noscript>
+    <noscript>Jotter needs JavaScript. / Jotter braucht JavaScript.</noscript>
     <script type="module" src="./src/main.ts"></script>
   </body>
 </html>
