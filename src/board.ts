@@ -71,8 +71,8 @@ export class Board {
     this.stage = stage;
     this.ink = ink;
     this.overlay = overlay;
-    // desynchronized = low-latency path on Chromium (Android), ignored elsewhere.
-    this.ictx = ink.getContext("2d", { desynchronized: true }) as CanvasRenderingContext2D;
+    // Plain 2D context: the ink layer must stay transparent over the CSS paper colour on every GPU.
+    this.ictx = ink.getContext("2d") as CanvasRenderingContext2D;
     this.octx = overlay.getContext("2d") as CanvasRenderingContext2D;
     this.sheet = sheet;
     this.view = { ...sheet.view };
@@ -174,8 +174,21 @@ export class Board {
     this.push(op);
   }
 
+  /**
+   * Paper colour lives in a 1×1 canvas stretched over the stage. Browsers that force a dark
+   * theme (Dark Reader, Samsung Internet, Opera…) recolour CSS backgrounds but never canvas
+   * pixels, so the chosen paper always shows exactly as picked.
+   */
   private applyBackground() {
-    this.stage.style.backgroundColor = this.sheet.bg;
+    const bg = this.sheet.bg;
+    this.stage.style.backgroundColor = bg;
+    const c = this.stage.querySelector<HTMLCanvasElement>("#paper");
+    const x = c?.getContext("2d");
+    if (c && x) {
+      x.clearRect(0, 0, 1, 1);
+      x.fillStyle = bg;
+      x.fillRect(0, 0, 1, 1);
+    }
   }
 
   // ---------------------------------------------------------------- view

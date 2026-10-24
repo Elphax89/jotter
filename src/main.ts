@@ -3,8 +3,8 @@ import { Board } from "./board";
 import { t, translateDom, LANG } from "./i18n";
 import { attachInput, isTyping, type Brush } from "./input";
 import { renderRegion, union } from "./render";
-import { deleteSheet, listSheets, loadSheet, newSheet, readPref, requestPersistence, saveSheet, writePref } from "./store";
-import type { BBox, ShapeKind, Sheet, Tool } from "./types";
+import { deleteSheet, listSheets, loadSaved, loadSheet, newId, newSheet, persist, readPref, renameSheet, requestPersistence, writePref } from "./store";
+import type { BBox, ShapeKind, Sheet, SheetMeta, Tool } from "./types";
 
 // ------------------------------------------------------------------ palette
 
@@ -44,7 +44,8 @@ const state = {
   draft: null as [number, number] | null,
   chromeOff: false,
   thumbDirty: false,
-  saved: false, // current sheet exists in storage
+  stored: false, // current sheet exists in storage
+  dirty: false, // changed since the last explicit save
 };
 if (!(state.tool in SIZE_RANGE)) state.tool = "pen";
 
@@ -79,22 +80,26 @@ const input = attachInput(stage, {
 });
 
 // ------------------------------------------------------------------ saving
+//
+// Two layers: every change is autosaved to a working copy (so nothing is ever
+// lost when the browser kills the tab). "Save" additionally stores a snapshot;
+// "Discard changes" returns to it, "Save as" makes a new named sheet from it.
 
 let saveTimer = 0;
+let thumbTimer = 0;
 let saveErrorShown = false;
 
 board.onChange = () => {
+  state.dirty = true;
   state.thumbDirty = true;
-  if (!state.saved) requestPersistence();
+  if (!state.stored) requestPersistence();
   scheduleSave(450);
   sync();
 };
 board.onView = () => {
   syncZoom();
-  if (state.saved) scheduleSave(900);
+  if (state.stored) scheduleSave(900);
 };
-
-let thumbTimer = 0;
 
 function scheduleSave(ms: number) {
   clearTimeout(saveTimer);
@@ -112,28 +117,120 @@ function scheduleSave(ms: number) {
   }
 }
 
+/** Autosave the working copy. */
 async function save(withThumb: boolean) {
   clearTimeout(saveTimer);
   saveTimer = 0;
   const sheet = board.sheet;
-  if (!state.saved && sheet.marks.length === 0 && sheet.bg === PAPERS[0]) return; // don't litter the gallery with blanks
+  if (!state.stored && sheet.marks.length === 0 && sheet.bg === PAPERS[0] && !sheet.name) return; // no blank sheets in the gallery
   try {
     let thumb: Blob | undefined;
     if (withThumb && state.thumbDirty) {
       thumb = await makeThumb(sheet);
       state.thumbDirty = false;
     }
-    await saveSheet(sheet, thumb);
-    if (!state.saved) {
-      state.saved = true;
+    sheet.dirty = state.dirty;
+    await persist(sheet, { thumb });
+    if (!state.stored) {
+      state.stored = true;
       writePref("current", sheet.id);
     }
   } catch {
-    if (!saveErrorShown) {
-      saveErrorShown = true;
-      toast(t.saveFailed, 4000);
-    }
+    failSave();
   }
+}
+
+function failSave() {
+  if (saveErrorShown) return;
+  saveErrorShown = true;
+  toast(t.saveFailed, 4000);
+}
+
+/** Explicit save: store the snapshot. */
+async function commit(): Promise<boolean> {
+  clearTimeout(saveTimer);
+  saveTimer = 0;
+  const sheet = board.sheet;
+  try {
+    const thumb = await makeThumb(sheet);
+    sheet.savedAt = Date.now();
+    sheet.dirty = false;
+    state.dirty = false;
+    state.thumbDirty = false;
+    await persist(sheet, { commit: true, thumb });
+    state.stored = true;
+    writePref("current", sheet.id);
+    sync();
+    return true;
+  } catch {
+    toast(t.saveFailed, 4000);
+    return false;
+  }
+}
+
+function defaultName() {
+  return new Intl.DateTimeFormat(LANG, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }).format(new Date());
+}
+
+async function saveDoc() {
+  closePops();
+  if (!board.sheet.name) return saveAs(false);
+  if (!state.dirty && board.sheet.savedAt) return toast(t.upToDate);
+  if (await commit()) toast(t.saved);
+}
+
+/** copy=true: always a new sheet (keeps the original as last saved). */
+async function saveAs(copy = true) {
+  closePops();
+  const sheet = board.sheet;
+  const suggestion = sheet.name ? (copy ? `${sheet.name} ${t.copy}` : sheet.name) : defaultName();
+  const name = await ask(t.saveAsTitle, suggestion, t.save);
+  if (name === null) return;
+  const label = name || t.untitled;
+  if (!copy || !sheet.savedAt) {
+    // First save of this sheet: just name and store it.
+    sheet.name = name;
+    if (await commit()) toast(`${t.savedAs} „${label}“`);
+    return;
+  }
+  const old = { id: sheet.id, name: sheet.name, created: sheet.created, savedAt: sheet.savedAt };
+  sheet.id = newId();
+  sheet.name = name;
+  sheet.created = Date.now();
+  if (!(await commit())) {
+    Object.assign(sheet, old);
+    return;
+  }
+  // The original keeps its last saved version; unsaved edits moved to the copy.
+  const snap = await loadSaved(old.id).catch(() => undefined);
+  if (snap) {
+    snap.dirty = false;
+    await persist(snap, { thumb: await makeThumb(snap) }).catch(() => {});
+  }
+  toast(`${t.savedAs} „${label}“`);
+}
+
+async function renameCurrent() {
+  closePops();
+  const sheet = board.sheet;
+  const name = await ask(t.renameTitle, sheet.name, t.rename);
+  if (name === null) return;
+  sheet.name = name;
+  await save(false);
+  if (sheet.savedAt) await renameSheet(sheet.id, name).catch(() => {});
+  sync();
+}
+
+async function revertDoc() {
+  closePops();
+  const snap = await loadSaved(board.sheet.id);
+  if (!snap) return;
+  if (!(await confirm(t.revertTitle, t.revertBody, t.discard))) return;
+  snap.dirty = false;
+  await persist(snap);
+  await openSheet(snap, true);
+  state.thumbDirty = true;
+  scheduleSave(300);
 }
 
 function pageRegion(sheet: Sheet): BBox {
@@ -164,16 +261,19 @@ document.addEventListener("visibilitychange", () => {
 });
 window.addEventListener("pagehide", flush);
 
-async function openSheet(sheet: Sheet, saved: boolean) {
+async function openSheet(sheet: Sheet, stored: boolean) {
   closeComposer();
+  sheet.name = sheet.name ?? "";
   board.load(sheet);
-  state.saved = saved;
-  state.thumbDirty = !saved;
+  state.stored = stored;
+  state.dirty = !!sheet.dirty;
+  state.thumbDirty = !stored;
   writePref("current", sheet.id);
   sync();
 }
 
 async function createSheet() {
+  closePops();
   await save(true);
   await openSheet(newSheet(board.sheet.bg), false);
   closeGallery();
@@ -211,6 +311,15 @@ function sync() {
   hint.classList.toggle("on-dark", luminance(board.sheet.bg) < 140);
 
   $("#item-fingers").hidden = !input.penSeen;
+
+  const sh = board.sheet;
+  $("#doc-name").textContent = sh.name || t.untitled;
+  const docEl = $("#doc");
+  docEl.classList.toggle("untitled", !sh.name);
+  docEl.classList.toggle("doc-light", luminance(sh.bg) >= 140);
+  $("#doc-dot").hidden = !state.dirty;
+  $("#save-dot").hidden = !state.dirty;
+  $("#item-revert").hidden = !(sh.savedAt && state.dirty);
   syncZoom();
 }
 
@@ -452,31 +561,73 @@ if (vv) {
 
 // ------------------------------------------------------------------ gallery
 
-let thumbUrls: string[] = [];
+let galleryItems: SheetMeta[] = [];
+let galleryView = readPref<"grid" | "list">("galleryView", "grid");
+let gallerySort = readPref<"recent" | "name">("gallerySort", "recent");
+const thumbUrls = new Map<string, string>();
+const searchEl = $<HTMLInputElement>("#search");
+
+function thumbUrl(m: SheetMeta, blob: Blob) {
+  const key = `${m.id}@${m.updated}`;
+  let url = thumbUrls.get(key);
+  if (!url) {
+    url = URL.createObjectURL(blob);
+    thumbUrls.set(key, url);
+  }
+  return url;
+}
+
+function freeThumbs() {
+  thumbUrls.forEach((u) => URL.revokeObjectURL(u));
+  thumbUrls.clear();
+}
 
 async function showGallery() {
   closePops();
   closeComposer();
   await save(true);
-  const items = await listSheets().catch(() => []);
-  thumbUrls.forEach(URL.revokeObjectURL);
-  thumbUrls = [];
+  galleryItems = await listSheets().catch(() => []);
+  freeThumbs();
+  searchEl.value = "";
+  searchEl.parentElement!.hidden = galleryItems.length < 5;
+  renderGallery();
+  gallery.hidden = false;
+  $<HTMLButtonElement>('[data-act="gallery-close"]').focus({ preventScroll: true });
+}
+
+function renderGallery() {
+  const list = galleryList;
+  list.classList.toggle("list", galleryView === "list");
+  $("#view-icon").setAttribute("href", galleryView === "grid" ? "#i-list" : "#i-grid");
+  const viewLabel = galleryView === "grid" ? t.viewList : t.viewGrid;
+  $("#view-toggle").setAttribute("aria-label", viewLabel);
+  $("#view-toggle").title = viewLabel;
+  $("#sort-toggle").textContent = gallerySort === "recent" ? t.sortRecent : t.sortName;
+
+  const q = searchEl.value.trim().toLowerCase();
   const fmt = new Intl.DateTimeFormat(LANG, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
-  galleryList.replaceChildren(
+  let items = galleryItems.filter((m) => !q || (m.name || t.untitled).toLowerCase().includes(q));
+  if (gallerySort === "name") {
+    items = [...items].sort((a, b) => (a.name || "\uffff").localeCompare(b.name || "\uffff", LANG, { numeric: true, sensitivity: "base" }) || b.updated - a.updated);
+  }
+  const empty = $("#gallery-empty");
+  empty.hidden = items.length > 0;
+  empty.textContent = galleryItems.length ? t.noResults : t.noSheets;
+
+  list.replaceChildren(
     ...items.map((m) => {
       const li = document.createElement("li");
       li.className = "card";
       if (m.id === board.sheet.id) li.setAttribute("aria-current", "true");
+
       const open = document.createElement("button");
       open.className = "card-open";
       open.type = "button";
       open.style.background = m.bg;
-      open.setAttribute("aria-label", fmt.format(m.updated));
+      open.setAttribute("aria-label", `${t.open}: ${m.name || t.untitled}`);
       const showThumb = (blob: Blob) => {
         const img = document.createElement("img");
-        const url = URL.createObjectURL(blob);
-        thumbUrls.push(url);
-        img.src = url;
+        img.src = thumbUrl(m, blob);
         img.alt = "";
         img.decoding = "async";
         img.loading = "lazy";
@@ -490,7 +641,7 @@ async function showGallery() {
           const blob = await makeThumb(sheet);
           if (!blob) return;
           showThumb(blob);
-          await saveSheet(sheet, blob).catch(() => {});
+          await persist(sheet, { thumb: blob }).catch(() => {});
         });
       }
       open.addEventListener("click", async () => {
@@ -500,17 +651,40 @@ async function showGallery() {
         }
         closeGallery();
       });
+
       const meta = document.createElement("div");
       meta.className = "card-meta";
-      const label = document.createElement("span");
-      label.textContent = m.n ? fmt.format(m.updated) : `${fmt.format(m.updated)} · ${t.empty}`;
-      const del = document.createElement("button");
-      del.type = "button";
-      del.className = "btn";
-      del.setAttribute("aria-label", t.delete);
-      del.title = t.delete;
-      del.innerHTML = `<svg><use href="#i-trash"/></svg>`;
-      del.addEventListener("click", async () => {
+      const text = document.createElement("div");
+      text.className = "card-text";
+      const name = document.createElement("span");
+      name.className = "card-name" + (m.name ? "" : " untitled");
+      name.textContent = m.name || t.untitled;
+      const date = document.createElement("span");
+      date.className = "card-date";
+      const tag = !m.savedAt ? t.draft : m.dirty ? t.changed : "";
+      if (tag) {
+        const b = document.createElement("span");
+        b.className = "tag";
+        b.textContent = tag;
+        date.append(b);
+      }
+      date.append(fmt.format(m.updated));
+      text.append(name, date);
+
+      const actions = document.createElement("div");
+      actions.className = "card-actions";
+      const ren = iconButton("#i-rename", t.rename, async () => {
+        const next = await ask(t.renameTitle, m.name, t.rename);
+        if (next === null) return;
+        if (m.id === board.sheet.id) {
+          board.sheet.name = next;
+          await save(false);
+          sync();
+        }
+        await renameSheet(m.id, next).catch(() => {});
+        await showGallery();
+      });
+      const del = iconButton("#i-trash", t.delete, async () => {
         if (!(await confirm(t.deleteTitle, t.deleteBody, t.delete))) return;
         await deleteSheet(m.id);
         if (m.id === board.sheet.id) {
@@ -518,21 +692,32 @@ async function showGallery() {
           const next = rest[0] && (await loadSheet(rest[0].id));
           await openSheet(next || newSheet(PAPERS[0]), !!next);
         }
-        void showGallery();
+        await showGallery();
       });
-      meta.append(label, del);
+      actions.append(ren, del);
+      meta.append(text, actions);
       li.append(open, meta);
       return li;
     }),
   );
-  gallery.hidden = false;
-  $<HTMLButtonElement>('[data-act="gallery-close"]').focus({ preventScroll: true });
 }
+
+function iconButton(icon: string, label: string, onClick: () => void) {
+  const b = document.createElement("button");
+  b.type = "button";
+  b.className = "btn";
+  b.setAttribute("aria-label", label);
+  b.title = label;
+  b.innerHTML = `<svg><use href="${icon}"/></svg>`;
+  b.addEventListener("click", onClick);
+  return b;
+}
+
+searchEl.addEventListener("input", renderGallery);
 
 function closeGallery() {
   gallery.hidden = true;
-  thumbUrls.forEach(URL.revokeObjectURL);
-  thumbUrls = [];
+  freeThumbs();
 }
 
 // ------------------------------------------------------------------ confirm & toast
@@ -565,6 +750,40 @@ function confirm(title: string, body: string, ok: string): Promise<boolean> {
     no.onclick = () => finish(false);
     modal.onclick = (e) => {
       if (e.target === modal) finish(false);
+    };
+  });
+}
+
+function ask(title: string, value: string, ok: string): Promise<string | null> {
+  const form = $<HTMLFormElement>("#prompt");
+  const input = $<HTMLInputElement>("#prompt-input");
+  const no = $<HTMLButtonElement>("#prompt-no");
+  $("#prompt-title").textContent = title;
+  $("#prompt-yes").textContent = ok;
+  input.value = value;
+  form.hidden = false;
+  input.focus();
+  input.select();
+  return new Promise((resolve) => {
+    const finish = (v: string | null) => {
+      form.hidden = true;
+      form.onsubmit = no.onclick = form.onclick = null;
+      input.onkeydown = null;
+      resolve(v);
+    };
+    form.onsubmit = (e) => {
+      e.preventDefault();
+      finish(input.value.trim().slice(0, 60));
+    };
+    no.onclick = () => finish(null);
+    form.onclick = (e) => {
+      if (e.target === form) finish(null);
+    };
+    input.onkeydown = (e) => {
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        finish(null);
+      }
     };
   });
 }
@@ -658,6 +877,20 @@ const actions: Record<string, () => void> = {
   gallery: () => void showGallery(),
   "gallery-close": closeGallery,
   new: () => void createSheet(),
+  save: () => void saveDoc(),
+  "save-as": () => void saveAs(true),
+  rename: () => void renameCurrent(),
+  revert: () => void revertDoc(),
+  view: () => {
+    galleryView = galleryView === "grid" ? "list" : "grid";
+    writePref("galleryView", galleryView);
+    renderGallery();
+  },
+  sort: () => {
+    gallerySort = gallerySort === "recent" ? "name" : "recent";
+    writePref("gallerySort", gallerySort);
+    renderGallery();
+  },
   share: () => void shareImage(),
   menu: () => togglePop("pop-menu"),
   color: () => togglePop("pop-color"),
@@ -723,6 +956,13 @@ window.addEventListener("keydown", (e) => {
   } else if (mod && k === "y") {
     e.preventDefault();
     board.redo();
+  } else if (mod && k === "s") {
+    e.preventDefault();
+    if (e.shiftKey) void saveAs(true);
+    else void saveDoc();
+  } else if (mod && k === "o") {
+    e.preventDefault();
+    void showGallery();
   } else if (mod || e.altKey) {
     return;
   } else if (k === "p" || k === "b") setTool("pen");

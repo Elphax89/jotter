@@ -111,6 +111,11 @@ svg {
   transform-origin: 0 0;
 }
 
+#paper {
+  image-rendering: pixelated;
+  color-scheme: only light;
+}
+
 .hint {
   position: absolute;
   inset: 28% 24px auto;
@@ -726,4 +731,231 @@ svg {
     animation: none !important;
     transition: none !important;
   }
+}
+
+/* ------------------------------------------------------------- documents */
+
+.doc {
+  flex: 1 1 0;
+  min-width: 0;
+  align-self: flex-start;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: calc(var(--btn) + 10px);
+  padding: 0 4px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--fg);
+  text-shadow: 0 1px 6px var(--doc-shadow, rgba(0, 0, 0, 0.5));
+  pointer-events: auto;
+}
+
+.doc span {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.doc.untitled span {
+  font-weight: 500;
+  opacity: 0.75;
+}
+
+.doc i,
+.badge {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #ffb224;
+}
+
+.badge {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  box-shadow: 0 0 0 2px var(--surface);
+}
+
+.doc-light {
+  color: #1c1917;
+  --doc-shadow: rgba(255, 255, 255, 0.6);
+}
+
+.menu-sep {
+  height: 1px;
+  margin: 4px 8px;
+  border: 0;
+  background: var(--border);
+}
+
+.menu {
+  max-height: calc(100% - var(--safe-t) - var(--dock-h) - 2 * var(--gap) - var(--safe-b));
+  overflow-y: auto;
+}
+
+.text-input {
+  width: 100%;
+  height: var(--btn);
+  margin-top: 14px;
+  padding: 0 12px;
+  font-size: 16px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  outline: none;
+}
+
+.text-input:focus {
+  border-color: var(--muted);
+}
+
+/* gallery: tools, list mode */
+
+.gallery-tools {
+  display: flex;
+  gap: var(--gap);
+  padding: 12px var(--safe-r) 0 var(--safe-l);
+}
+
+.search {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  align-items: center;
+}
+
+.search svg {
+  position: absolute;
+  left: 12px;
+  width: 18px;
+  height: 18px;
+  color: var(--muted);
+  pointer-events: none;
+}
+
+.search input {
+  width: 100%;
+  height: var(--btn);
+  padding: 0 12px 0 38px;
+  font-size: 16px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  outline: none;
+}
+
+.search input:focus {
+  border-color: var(--muted);
+}
+
+.chip {
+  flex: none;
+  height: var(--btn);
+  padding: 0 14px;
+  border-radius: var(--radius);
+  font-size: 14px;
+  font-weight: 600;
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.gallery-empty {
+  margin: 48px 24px;
+  text-align: center;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.card-name {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.card-name.untitled {
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.card-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  flex: 1;
+}
+
+.card-date {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.tag {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 1px 6px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #1c1917;
+  background: #ffb224;
+}
+
+.card-meta {
+  align-items: flex-start;
+  padding: 6px 0 0 4px;
+}
+
+.card-actions {
+  display: flex;
+  flex: none;
+}
+
+.gallery-list.list {
+  grid-template-columns: 1fr;
+  gap: 8px;
+}
+
+.gallery-list.list .card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 6px 6px 6px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.gallery-list.list .card[aria-current="true"] {
+  border-color: var(--fg);
+}
+
+.gallery-list.list .card-open {
+  width: 64px;
+  height: 64px;
+  flex: none;
+  aspect-ratio: auto;
+}
+
+.gallery-list.list .card[aria-current="true"] .card-open {
+  box-shadow: none;
+}
+
+.gallery-list.list .card-meta {
+  flex: 1;
+  min-width: 0;
+  align-items: center;
+  padding: 0;
 }

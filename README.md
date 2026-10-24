@@ -18,10 +18,23 @@ Kostenlos, ohne Konto, ohne Werbung. Funktioniert offline und lässt sich wie ei
 - 🧽 **Radierer** und **Text**
 - 🎨 14 Farben + eigene Farbe, 5 Papierfarben + eigene
 - 🔍 **Zoomen & Verschieben** mit zwei Fingern – Zeichnung wird beim Drehen des Handys nie verzerrt
-- 📚 **Mehrere Blätter** mit Vorschau, automatisch gespeichert
+- 📚 **Blätter speichern & öffnen:** Öffnen, Speichern (überschreibt), Speichern unter (neue Kopie), Umbenennen – mit Name und Datum, als Raster oder Liste, sortier- und durchsuchbar
+- 🛟 **Automatischer Entwurf:** Jede Änderung wird sofort gesichert, auch wenn der Browser die App beendet
 - 📤 **Als Bild teilen/speichern** (PNG, automatisch auf die Zeichnung zugeschnitten)
 - 📴 **Offline** nach dem ersten Besuch, **installierbar** auf dem Homescreen
 - 🌍 Deutsch & Englisch (automatisch nach Gerätesprache)
+
+## Blätter speichern und weiterzeichnen
+
+| Aktion | Was passiert |
+|---|---|
+| **Speichern** (Diskette oben rechts) | Speichert das Blatt unter seinem Namen und überschreibt die letzte gespeicherte Version. Hat das Blatt noch keinen Namen, fragt Jotter danach. Ein oranger Punkt zeigt ungespeicherte Änderungen. |
+| **Speichern unter …** (Menü „…“) | Legt eine neue Kopie unter neuem Namen an. Das Original bleibt wie zuletzt gespeichert. |
+| **Öffnen** (Symbol oben links) | Zeigt alle Blätter als Raster oder Liste mit Name und Datum. Antippen öffnet das Blatt zum Weiterzeichnen. |
+| **Umbenennen** | Tippe oben auf den Blattnamen oder auf das Stift-Symbol in der Übersicht. |
+| **Änderungen verwerfen** (Menü, nur bei Änderungen) | Setzt das Blatt auf die zuletzt gespeicherte Version zurück. |
+
+Zusätzlich sichert Jotter jede Änderung laufend als Entwurf. Auch ohne zu speichern geht nichts verloren, die Blätter erscheinen dann mit „Entwurf“ oder „Geändert“ in der Übersicht.
 
 ## Gesten
 
@@ -34,7 +47,7 @@ Kostenlos, ohne Konto, ohne Werbung. Funktioniert offline und lässt sich wie ei
 | aktives Werkzeug nochmal antippen | dessen Optionen (Stärke, Form) |
 | Stift erkannt | Finger zeichnen nicht mehr, nur noch zoomen & schieben (Handballen-Erkennung). Umschaltbar im Menü „…“ |
 
-**Tastatur:** `Strg/⌘+Z` rückgängig · `Strg/⌘+Umschalt+Z` wiederholen · `P` Stift · `S` Formen · `E` Radierer · `T` Text · `[` `]` Stärke · `0` Ansicht einpassen · `Leertaste`+Ziehen verschieben · `Umschalt` beim Formzeichnen: Quadrat/Kreis/45°
+**Tastatur:** `Strg/⌘+S` speichern · `Strg/⌘+Umschalt+S` speichern unter · `Strg/⌘+O` öffnen · `Strg/⌘+Z` rückgängig · `Strg/⌘+Umschalt+Z` wiederholen · `P` Stift · `S` Formen · `E` Radierer · `T` Text · `[` `]` Stärke · `0` Ansicht einpassen · `Leertaste`+Ziehen verschieben · `Umschalt` beim Formzeichnen: Quadrat/Kreis/45°
 
 ## Als App installieren
 
@@ -81,7 +94,7 @@ Keine Laufzeit-Abhängigkeiten – nur Vite und TypeScript zum Bauen. Die fertig
 - Papierfarbe ist CSS hinter der Zeichen-Ebene; der Radierer legt sie einfach frei.
 - Sehr volle Blätter werden beim Zoomen per GPU verschoben und erst danach scharf neu gezeichnet.
 - Nur sichtbare Striche werden gezeichnet; Bildschirmauflösung auf 2× begrenzt.
-- Low-Latency-Canvas auf Android, Coalesced Pointer Events für feine Linien.
+- Coalesced Pointer Events für feine Linien auch bei schnellen Bewegungen.
 
 ## Auf GitHub veröffentlichen
 
@@ -114,7 +127,8 @@ Jeder weitere Push auf `main` aktualisiert die Seite automatisch; Nutzer bekomme
 - Pressure-sensitive pen, shapes (line/rect/oval, optional fill), eraser, text
 - Two-finger pinch to zoom & pan; two-finger tap = undo, three-finger tap = redo
 - Palm rejection once a stylus is detected
-- Multiple sheets with thumbnails, auto-saved to IndexedDB
+- Open / Save (overwrite) / Save as / Rename, with name and date, grid or list view, search and sort
+- Continuous draft autosave, nothing is lost if the browser closes the app
 - Share/save as PNG, cropped to the drawing
 - Offline service worker, installable PWA, German & English UI
 

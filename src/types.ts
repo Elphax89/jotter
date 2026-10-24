@@ -60,8 +60,15 @@ export interface View {
 
 export interface Sheet {
   id: string;
+  /** user-given name; empty = untitled */
+  name: string;
   created: number;
+  /** last change (autosave) */
   updated: number;
+  /** time of the last explicit "Save"; unset = never saved */
+  savedAt?: number;
+  /** changed since the last explicit save */
+  dirty: boolean;
   bg: string;
   marks: Mark[];
   view: View;
@@ -70,8 +77,11 @@ export interface Sheet {
 /** Lightweight entry for the gallery (no stroke data). */
 export interface SheetMeta {
   id: string;
+  name: string;
   created: number;
   updated: number;
+  savedAt?: number;
+  dirty: boolean;
   bg: string;
   n: number;
   thumb?: Blob;
