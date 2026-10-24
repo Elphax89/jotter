@@ -127,6 +127,8 @@ function drawPen(ctx: CanvasRenderingContext2D, m: Extract<Mark, { k: "pen" }>) 
   ctx.stroke();
 }
 
+const arrowHead = (width: number) => Math.max(12, width * 4.5);
+
 export function drawShape(
   ctx: CanvasRenderingContext2D,
   kind: ShapeKind,
@@ -141,19 +143,91 @@ export function drawShape(
   setPaint(ctx, color, false);
   ctx.lineWidth = width;
   ctx.beginPath();
-  if (kind === "line") {
-    ctx.moveTo(x1, y1);
-    ctx.lineTo(x2, y2);
-    ctx.stroke();
-    return;
-  }
-  if (kind === "rect") {
-    ctx.rect(Math.min(x1, x2), Math.min(y1, y2), Math.abs(x2 - x1), Math.abs(y2 - y1));
-  } else {
-    const rx = Math.abs(x2 - x1) / 2;
-    const ry = Math.abs(y2 - y1) / 2;
-    if (rx < 0.25 || ry < 0.25) return;
-    ctx.ellipse((x1 + x2) / 2, (y1 + y2) / 2, rx, ry, 0, 0, Math.PI * 2);
+  switch (kind) {
+    case "line":
+      ctx.moveTo(x1, y1);
+      ctx.lineTo(x2, y2);
+      ctx.stroke();
+      return;
+    case "arrow": {
+      const len = Math.hypot(x2 - x1, y2 - y1);
+      ctx.moveTo(x1, y1);
+      ctx.lineTo(x2, y2);
+      if (len > 2) {
+        const hl = Math.min(arrowHead(width), len * 0.6);
+        const a = Math.atan2(y2 - y1, x2 - x1);
+        for (const d of [-0.5, 0.5]) {
+          ctx.moveTo(x2, y2);
+          ctx.lineTo(x2 - hl * Math.cos(a + d), y2 - hl * Math.sin(a + d));
+        }
+      }
+      ctx.stroke();
+      return;
+    }
+    case "rect":
+      ctx.rect(Math.min(x1, x2), Math.min(y1, y2), Math.abs(x2 - x1), Math.abs(y2 - y1));
+      break;
+    case "ellipse": {
+      const rx = Math.abs(x2 - x1) / 2;
+      const ry = Math.abs(y2 - y1) / 2;
+      if (rx < 0.25 || ry < 0.25) return;
+      ctx.ellipse((x1 + x2) / 2, (y1 + y2) / 2, rx, ry, 0, 0, Math.PI * 2);
+      break;
+    }
+    case "circle": {
+      // centre = where you started, radius = how far you drag
+      const r = Math.hypot(x2 - x1, y2 - y1);
+      if (r < 0.25) return;
+      ctx.arc(x1, y1, r, 0, Math.PI * 2);
+      break;
+    }
+    case "triangle":
+      if (Math.abs(x2 - x1) < 1 || Math.abs(y2 - y1) < 1) return;
+      ctx.moveTo((x1 + x2) / 2, y1);
+      ctx.lineTo(x2, y2);
+      ctx.lineTo(x1, y2);
+      ctx.closePath();
+      break;
+    case "cuboid": {
+      const x0 = Math.min(x1, x2);
+      const xe = Math.max(x1, x2);
+      const y0 = Math.min(y1, y2);
+      const ye = Math.max(y1, y2);
+      const d = Math.min(xe - x0, ye - y0) * 0.3;
+      if (d < 1) return;
+      const front = () => {
+        ctx.beginPath();
+        ctx.rect(x0, y0 + d, xe - x0 - d, ye - y0 - d);
+      };
+      const top = () => {
+        ctx.beginPath();
+        ctx.moveTo(x0, y0 + d);
+        ctx.lineTo(x0 + d, y0);
+        ctx.lineTo(xe, y0);
+        ctx.lineTo(xe - d, y0 + d);
+        ctx.closePath();
+      };
+      const side = () => {
+        ctx.beginPath();
+        ctx.moveTo(xe - d, y0 + d);
+        ctx.lineTo(xe, y0);
+        ctx.lineTo(xe, ye - d);
+        ctx.lineTo(xe - d, ye);
+        ctx.closePath();
+      };
+      // filled: the faces get different strengths of the colour so it reads as a solid
+      const faces: [() => void, number][] = [[front, 1], [top, 0.55], [side, 0.8]];
+      for (const [path, alpha] of faces) {
+        path();
+        if (fill) {
+          ctx.globalAlpha = alpha;
+          ctx.fill();
+          ctx.globalAlpha = 1;
+        }
+        ctx.stroke();
+      }
+      return;
+    }
   }
   if (fill) ctx.fill();
   ctx.stroke();
@@ -246,13 +320,18 @@ export function drawMarks(ctx: CanvasRenderingContext2D, marks: Mark[], visible:
   ctx.globalCompositeOperation = "source-over";
 }
 
-export function shapeBox(x1: number, y1: number, x2: number, y2: number, w: number): BBox {
+export function shapeBox(kind: ShapeKind, x1: number, y1: number, x2: number, y2: number, w: number): BBox {
   const r = w / 2 + 1;
+  if (kind === "circle") {
+    const rad = Math.hypot(x2 - x1, y2 - y1) + r;
+    return { x0: x1 - rad, y0: y1 - rad, x1: x1 + rad, y1: y1 + rad };
+  }
+  const extra = kind === "arrow" ? arrowHead(w) : 0;
   return {
-    x0: Math.min(x1, x2) - r,
-    y0: Math.min(y1, y2) - r,
-    x1: Math.max(x1, x2) + r,
-    y1: Math.max(y1, y2) + r,
+    x0: Math.min(x1, x2) - r - extra,
+    y0: Math.min(y1, y2) - r - extra,
+    x1: Math.max(x1, x2) + r + extra,
+    y1: Math.max(y1, y2) + r + extra,
   };
 }
 

@@ -4,7 +4,7 @@ import { t, translateDom, LANG } from "./i18n";
 import { attachInput, isTyping, type Brush } from "./input";
 import { draftBox, renderRegion, resizeText, retext, union } from "./render";
 import { clearRecovery, deleteSheet, listSheets, loadRecovery, loadSheet, newId, newSheet, persist, putRecovery, readPref, renameSheet, requestPersistence, writePref } from "./store";
-import type { BBox, ShapeKind, Sheet, SheetMeta, TextDraft, Tool } from "./types";
+import { OPEN_SHAPES, type BBox, type ShapeKind, type Sheet, type SheetMeta, type TextDraft, type Tool } from "./types";
 
 // ------------------------------------------------------------------ palette
 
@@ -554,7 +554,7 @@ function renderShape() {
   });
   const fill = $("#fill-toggle");
   fill.setAttribute("aria-pressed", String(state.fill));
-  (fill as HTMLButtonElement).disabled = state.shape === "line";
+  (fill as HTMLButtonElement).disabled = OPEN_SHAPES.includes(state.shape);
 }
 
 document.querySelectorAll<HTMLElement>("[data-shape]").forEach((el) =>

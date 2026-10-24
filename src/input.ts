@@ -381,7 +381,8 @@ export function isTyping(t: EventTarget | null) {
 function constrain(kind: ShapeKind, a: [number, number], b: [number, number]): [number, number] {
   const dx = b[0] - a[0];
   const dy = b[1] - a[1];
-  if (kind === "line") {
+  if (kind === "circle") return b;
+  if (kind === "line" || kind === "arrow") {
     const ang = Math.round(Math.atan2(dy, dx) / (Math.PI / 4)) * (Math.PI / 4);
     const len = Math.hypot(dx, dy);
     return [a[0] + Math.cos(ang) * len, a[1] + Math.sin(ang) * len];

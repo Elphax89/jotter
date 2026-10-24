@@ -13,7 +13,7 @@ import {
   textBBox,
   union,
 } from "./render";
-import type { BBox, Mark, ShapeKind, Sheet, TextDraft, View } from "./types";
+import { OPEN_SHAPES, type BBox, type Mark, type ShapeKind, type Sheet, type TextDraft, type View } from "./types";
 
 type Op =
   | { t: "add"; m: Mark }
@@ -447,8 +447,8 @@ export class Board {
     if (!p || p.k !== "shape") return this.renderOverlay();
     const dist = Math.hypot(p.x2 - p.x1, p.y2 - p.y1) * this.view.z;
     if (dist >= 3) {
-      const mark: Mark = { k: p.kind, c: p.c, w: p.w, x1: p.x1, y1: p.y1, x2: p.x2, y2: p.y2, b: shapeBox(p.x1, p.y1, p.x2, p.y2, p.w) };
-      if (p.f && p.kind !== "line") mark.f = 1;
+      const mark: Mark = { k: p.kind, c: p.c, w: p.w, x1: p.x1, y1: p.y1, x2: p.x2, y2: p.y2, b: shapeBox(p.kind, p.x1, p.y1, p.x2, p.y2, p.w) };
+      if (p.f && !OPEN_SHAPES.includes(p.kind)) mark.f = 1;
       this.withView(this.ictx, () => drawMarks(this.ictx, [mark], null));
       this.addMark(mark);
     }

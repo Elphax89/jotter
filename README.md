@@ -14,7 +14,7 @@ Kostenlos, ohne Konto, ohne Werbung. Funktioniert offline und lässt sich wie ei
 ## Funktionen
 
 - ✏️ **Stift** mit Druckempfindlichkeit (Apple Pencil, S Pen, Surface-Stift)
-- ⬜ **Formen** – Linie, Viereck, Oval, wahlweise gefüllt
+- ⬜ **Formen** – Linie, Pfeil, Viereck, Kreis, Oval, Dreieck, Quader, wahlweise gefüllt
 - 🧽 **Radierer** und **Text** – frei verschieben und drehen; gesetzte Texte lassen sich per Gedrückthalten wieder aufnehmen, ändern, verschieben, löschen
 - 🎨 14 Farben + eigene Farbe, 5 Papierfarben + eigene
 - 🔍 **Zoomen & Verschieben** mit zwei Fingern – Zeichnung wird beim Drehen des Handys nie verzerrt
@@ -135,7 +135,7 @@ Jeder weitere Push auf `main` aktualisiert die Seite automatisch; Nutzer bekomme
 
 **Jotter** is a tiny, fast drawing & note app for phones, tablets and desktops. Free, no account, no ads, works offline, installable, and everything stays on your device.
 
-- Pressure-sensitive pen, shapes (line/rect/oval, optional fill), eraser, text
+- Pressure-sensitive pen, shapes (line, arrow, rectangle, circle, oval, triangle, cuboid; optional fill), eraser, text
 - Two-finger pinch to zoom & pan; two-finger tap = undo, three-finger tap = redo
 - Palm rejection once a stylus is detected
 - Open / Save (overwrite) / Save as / Rename, with name and date, grid or list view, search and sort

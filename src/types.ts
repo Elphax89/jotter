@@ -6,7 +6,10 @@ export interface BBox {
   y1: number;
 }
 
-export type ShapeKind = "line" | "rect" | "ellipse";
+export type ShapeKind = "line" | "arrow" | "rect" | "ellipse" | "circle" | "triangle" | "cuboid";
+
+/** Shapes drawn as an outline only. */
+export const OPEN_SHAPES: ShapeKind[] = ["line", "arrow"];
 
 /**
  * A single drawn element. World units = CSS pixels at zoom 1.

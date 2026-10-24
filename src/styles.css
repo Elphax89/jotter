@@ -446,6 +446,15 @@ svg {
   align-items: center;
 }
 
+.seg.shapes .btn {
+  flex: 1;
+  min-width: 0;
+}
+
+.seg.fill-row {
+  margin-top: 4px;
+}
+
 .presets .btn {
   flex: 1;
   min-width: 0;
