@@ -130,11 +130,11 @@ No runtime dependencies, only Vite and TypeScript for building. The finished app
    ```bash
    git init && git add . && git commit -m "Jotter"
    git branch -M main
-   git remote add origin https://github.com/<your-name>/jotter.git
+   git remote add origin https://github.com/Elphax89/jotter.git
    git push -u origin main
    ```
 2. In the repo: **Settings → Pages → Source: “GitHub Actions”**.
-3. Done. After about a minute Jotter runs at `https://<your-name>.github.io/jotter/`.
+3. Done. After about a minute Jotter runs at `https://elphax89.github.io/jotter/`.
 
 Every push to `main` updates the site; users see a “New version available” notice in the app.
 
