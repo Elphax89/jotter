@@ -16,6 +16,7 @@ import {
   textBBox,
   transformMark,
   union,
+  onImageReady,
 } from "./render";
 import { OPEN_SHAPES, type BBox, type Mark, type Selection, type ShapeKind, type Sheet, type TextDraft, type View } from "./types";
 
@@ -88,6 +89,7 @@ export class Board {
     this.sheet = sheet;
     this.view = { ...sheet.view };
     this.applyBackground();
+    onImageReady(() => this.fullRender());
     new ResizeObserver(() => this.resize()).observe(stage);
     this.resize();
   }
@@ -533,6 +535,7 @@ export class Board {
     this.fullRender();
     const sel: Selection = { frame: markFrame(m), dx: 0, dy: 0, r: 0, k: 1, c: m.c };
     if (m.k === "note") Object.assign(sel, { o: m.o ?? 1, title: m.title, t: m.t });
+    if (m.k === "img") Object.assign(sel, { o: m.o ?? 1, img: true });
     return sel;
   }
 
@@ -747,6 +750,7 @@ export class Board {
         ctx.translate(-f.px, -f.py);
         const shown = { ...ed.mark, c: sel.c } as Mark;
         if (shown.k === "note") Object.assign(shown, { o: sel.o, title: sel.title, t: sel.t });
+        if (shown.k === "img") shown.o = sel.o;
         drawMark(ctx, shown);
         ctx.restore();
         ctx.globalCompositeOperation = "source-over";

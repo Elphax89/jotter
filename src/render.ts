@@ -428,8 +428,59 @@ export function noteBBox(x: number, y: number, w: number, h: number, r = 0): BBo
   return { x0: cx - ex, y0: cy - ey, x1: cx + ex, y1: cy + ey };
 }
 
+// ---------------------------------------------------------------- pictures
+
+const images = new Map<string, HTMLImageElement>();
+let imageReady = () => {};
+/** Called whenever a picture finishes decoding, so the board can repaint. */
+export function onImageReady(fn: () => void) {
+  imageReady = fn;
+}
+
+function image(src: string): HTMLImageElement {
+  let im = images.get(src);
+  if (!im) {
+    im = new Image();
+    im.decoding = "async";
+    im.onload = () => imageReady();
+    im.src = src;
+    images.set(src, im);
+  }
+  return im;
+}
+
+/** Resolve once every picture in `marks` can be drawn (for export and thumbnails). */
+export async function loadImages(marks: Mark[]) {
+  await Promise.all(
+    marks.map((m) => {
+      if (m.k !== "img") return;
+      const im = image(m.src);
+      return im.complete ? undefined : im.decode().catch(() => undefined);
+    }),
+  );
+}
+
+export function drawImg(ctx: CanvasRenderingContext2D, m: Extract<Mark, { k: "img" }>) {
+  const { x, y, w, h } = m;
+  ctx.save();
+  ctx.globalCompositeOperation = "source-over";
+  ctx.globalAlpha = m.o ?? 1;
+  ctx.translate(x + w / 2, y + h / 2);
+  if (m.r) ctx.rotate(m.r);
+  const im = image(m.src);
+  if (im.complete && im.naturalWidth) ctx.drawImage(im, -w / 2, -h / 2, w, h);
+  else {
+    ctx.fillStyle = "rgba(128,128,128,.18)";
+    ctx.fillRect(-w / 2, -h / 2, w, h);
+  }
+  ctx.restore();
+}
+
 export function drawMark(ctx: CanvasRenderingContext2D, m: Mark) {
   switch (m.k) {
+    case "img":
+      drawImg(ctx, m);
+      break;
     case "note":
       drawNote(ctx, m);
       break;
@@ -490,7 +541,7 @@ export function markFrame(m: Mark): Frame {
     const { w, h } = measureText(m.t, m.s);
     return { px: m.x + w / 2, py: m.y + h / 2, hw: w / 2, hh: h / 2, a0: m.r ?? 0 };
   }
-  if (m.k === "note") return { px: m.x + m.w / 2, py: m.y + m.h / 2, hw: m.w / 2, hh: m.h / 2, a0: m.r ?? 0 };
+  if (m.k === "note" || m.k === "img") return { px: m.x + m.w / 2, py: m.y + m.h / 2, hw: m.w / 2, hh: m.h / 2, a0: m.r ?? 0 };
   const half = m.w / 2;
   if (m.k === "line" || m.k === "arrow") {
     const len = Math.hypot(m.x2 - m.x1, m.y2 - m.y1);
@@ -550,6 +601,19 @@ export function transformMark(
     const out: Mark = { k: "pen", c: color, w: m.w * k, p, b };
     if (pw) out.pw = pw;
     if (m.e) out.e = 1;
+    return out;
+  }
+  if (m.k === "img") {
+    const [cx, cy] = T(m.x + m.w / 2, m.y + m.h / 2);
+    const w = m.w * k;
+    const h = m.h * k;
+    const x = cx - w / 2;
+    const y = cy - h / 2;
+    const r = angle(m.r);
+    const o = note.o ?? m.o ?? 1;
+    const out: Mark = { k: "img", c: m.c, src: m.src, x, y, w, h, b: noteBBox(x, y, w, h, r ?? 0) };
+    if (r !== undefined) out.r = r;
+    if (o < 1) out.o = Math.round(o * 100) / 100;
     return out;
   }
   if (m.k === "note") {
@@ -644,7 +708,7 @@ export function hitMark(m: Mark, x: number, y: number, slop: number): boolean {
     }
     return false;
   }
-  if (m.k === "text" || m.k === "note") {
+  if (m.k === "text" || m.k === "note" || m.k === "img") {
     const f = markFrame(m);
     const dx = x - f.px;
     const dy = y - f.py;

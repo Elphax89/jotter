@@ -17,6 +17,7 @@ Free, no account, no ads. Works offline, installs like an app, and everything st
 - ⬜ **Shapes**: line, arrow, rectangle, circle, oval, triangle, cuboid, optionally filled
 - 🔤 **Text**: drag it anywhere, rotate it, pick a colour and size
 - 🗒️ **Note cards**: coloured cards with a title and text on top of your drawing, with adjustable opacity
+- 🖼️ **Import pictures** from your files or photo gallery (or paste / drop them) and draw on top
 - ✋ **Hold to edit**: hold any text, stroke, shape or note to move, rotate, recolour, resize or delete it
 - 🧽 **Eraser**
 - 🎨 14 ink colours + custom, 5 paper colours + custom
@@ -50,9 +51,13 @@ Free, no account, no ads. Works offline, installs like an app, and everything st
 
 Shapes menu → **+ Note**: write a title and some text, and the card lands in the middle of the screen, ready to drag into place. While it’s selected (or later, after holding it) you can pick a card colour, resize it, rotate it, change its **opacity in 5% steps**, edit its text with the pencil button, or delete it.
 
+## Pictures
+
+Shapes menu → **+ Picture** (or menu “…” → **Import picture**) opens your files or photo gallery. On a computer you can also paste a picture or drop it onto the sheet. It lands in the middle of the screen, ready to move, rotate, resize, change its **opacity in 5% steps** or delete. Draw or write on top of it as usual; the eraser works on it too. Large photos are scaled down to 1600 px so sheets stay light.
+
 ## Hold to edit anything
 
-Everything on the sheet can be changed later, whether it’s a text, a freehand stroke, a shape or a note card:
+Everything on the sheet can be changed later, whether it’s a text, a freehand stroke, a shape, a note card or a picture:
 
 - **Hold** it for a moment (pen or shape tool; in the text tool for texts, where a tap shows a “Hold to select” hint). It lifts off the sheet and follows your finger.
 - **Move** it by dragging, **rotate** it with the blue handle, change its **colour** and **size** in the bar, or **delete** it with the bin.

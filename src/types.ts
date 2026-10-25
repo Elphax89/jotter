@@ -64,6 +64,20 @@ export type Mark =
       b: BBox;
     }
   | {
+      /** imported picture (data URL), drawn like a card: move, rotate, scale, opacity */
+      k: "img";
+      /** unused; keeps the shared colour handling simple */
+      c: string;
+      src: string;
+      o?: number;
+      x: number;
+      y: number;
+      w: number;
+      h: number;
+      r?: number;
+      b: BBox;
+    }
+  | {
       k: "text";
       c: string;
       /** font size */
@@ -144,8 +158,10 @@ export interface Selection {
   /** scale */
   k: number;
   c: string;
-  /** note cards only: opacity and text */
+  /** note cards and pictures: opacity; note cards: text */
   o?: number;
+  /** a picture: no colour, no text */
+  img?: true;
   title?: string;
   t?: string;
 }

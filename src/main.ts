@@ -2,7 +2,7 @@ import "./styles.css";
 import { Board } from "./board";
 import { t, translateDom, LANG } from "./i18n";
 import { attachInput, isTyping, type Brush } from "./input";
-import { NOTE_COLORS, draftBox, noteBBox, renderRegion, resizeText, retext, union } from "./render";
+import { NOTE_COLORS, draftBox, loadImages, noteBBox, renderRegion, resizeText, retext, union } from "./render";
 import { clearRecovery, deleteSheet, listSheets, loadRecovery, loadSheet, newId, newSheet, persist, putRecovery, readPref, renameSheet, requestPersistence, writePref } from "./store";
 import { OPEN_SHAPES, type BBox, type ShapeKind, type Sheet, type SheetMeta, type Selection, type TextDraft, type Tool } from "./types";
 
@@ -299,7 +299,8 @@ function pageRegion(sheet: Sheet): BBox {
   return r;
 }
 
-function makeThumb(sheet: Sheet): Promise<Blob | undefined> {
+async function makeThumb(sheet: Sheet): Promise<Blob | undefined> {
+  await loadImages(sheet.marks);
   const r = pageRegion(sheet);
   const scale = 360 / Math.max(r.x1 - r.x0, r.y1 - r.y0);
   const canvas = renderRegion(sheet.marks, sheet.bg, r, scale);
@@ -614,15 +615,16 @@ function renderComposerTools() {
   const d = state.draft;
   if (!sel && !d) return;
   const color = (sel ? sel.c : d!.c).toLowerCase();
-  const isNote = sel?.o !== undefined;
+  const isNote = sel?.o !== undefined && !sel.img;
+  composerInks.hidden = !!sel?.img;
   const palette = isNote ? NOTE_COLORS : INKS;
   composerInks.replaceChildren(
     ...palette.map((c, i) => swatch(c, isNote ? c : t.inks[i], c === color, () => setEditColor(c))),
     customSwatch(color, !palette.includes(color), true, (v) => setEditColor(v)),
   );
-  composerAlphaRow.hidden = !isNote;
+  composerAlphaRow.hidden = sel?.o === undefined;
   composerNote.hidden = !isNote;
-  if (isNote) {
+  if (sel?.o !== undefined) {
     composerAlpha.value = String(Math.round(sel!.o! * 100));
     $("#composer-alpha-val").textContent = `${composerAlpha.value}%`;
   }
@@ -739,9 +741,87 @@ async function addNote() {
   sync();
 }
 
+// ---- imported pictures
+
+const importFile = $<HTMLInputElement>("#import-file");
+
+function pickImage() {
+  closePops();
+  if (editing()) closeComposer("commit");
+  importFile.value = "";
+  importFile.click();
+}
+importFile.addEventListener("change", () => {
+  const f = importFile.files?.[0];
+  if (f) void importImage(f);
+});
+
+/** Downscale to at most 1600 px on the long side so sheets stay small in storage. */
+async function shrink(file: Blob): Promise<{ src: string; w: number; h: number }> {
+  const bmp = await createImageBitmap(file);
+  const k = Math.min(1, 1600 / Math.max(bmp.width, bmp.height));
+  const w = Math.max(1, Math.round(bmp.width * k));
+  const h = Math.max(1, Math.round(bmp.height * k));
+  const c = document.createElement("canvas");
+  c.width = w;
+  c.height = h;
+  c.getContext("2d")!.drawImage(bmp, 0, 0, w, h);
+  bmp.close();
+  // WebP keeps transparency and is small; browsers that can't encode it fall back to PNG.
+  let src = c.toDataURL("image/webp", 0.86);
+  if (!src.startsWith("data:image/webp")) src = c.toDataURL(file.type === "image/png" ? "image/png" : "image/jpeg", 0.86);
+  return { src, w, h };
+}
+
+/** Place a picture in the middle of the view, picked up and ready to move, rotate or scale. */
+async function importImage(file: Blob) {
+  if (editing()) closeComposer("commit");
+  let pic: { src: string; w: number; h: number };
+  try {
+    pic = await shrink(file);
+  } catch {
+    toast(t.importFailed);
+    return;
+  }
+  const z = board.zoom;
+  const fit = Math.min((board.size.w * 0.8) / pic.w, (board.size.h * 0.6) / pic.h, 1);
+  const w = (pic.w * fit) / z;
+  const h = (pic.h * fit) / z;
+  const [cx, cy] = board.toWorld(board.size.w / 2, board.size.h / 2);
+  const x = cx - w / 2;
+  const y = cy - h / 2;
+  const m = { k: "img" as const, c: "#000000", src: pic.src, x, y, w, h, b: noteBBox(x, y, w, h) };
+  await loadImages([m]);
+  const i = board.add(m);
+  const sel = board.beginSelect(i);
+  if (!sel) return;
+  previewSel(sel);
+  showBar("mark");
+  sync();
+}
+
+// Paste or drop a picture straight onto the sheet.
+document.addEventListener("paste", (e) => {
+  if (isTyping(e.target)) return;
+  const f = [...(e.clipboardData?.files ?? [])].find((f) => f.type.startsWith("image/"));
+  if (f) {
+    e.preventDefault();
+    void importImage(f);
+  }
+});
+document.addEventListener("dragover", (e) => {
+  if (e.dataTransfer?.types.includes("Files")) e.preventDefault();
+});
+document.addEventListener("drop", (e) => {
+  const f = [...(e.dataTransfer?.files ?? [])].find((f) => f.type.startsWith("image/"));
+  if (!f) return;
+  e.preventDefault();
+  void importImage(f);
+});
+
 async function editNoteText() {
   const sel = state.sel;
-  if (!sel || sel.o === undefined) return;
+  if (!sel || sel.o === undefined || sel.img) return;
   const res = await editNote(sel.title ?? "", sel.t ?? "");
   if (res && state.sel === sel) previewSel({ ...sel, ...res });
 }
@@ -1280,6 +1360,7 @@ function toast(text: string, ms = 2400, action?: { label: string; run: () => voi
 
 async function renderExport(): Promise<{ blob: Blob; name: string } | null> {
   const sheet = board.sheet;
+  await loadImages(sheet.marks);
   const content = union(sheet.marks);
   const { w, h } = board.size;
   const r: BBox = content
@@ -1487,6 +1568,7 @@ const actions: Record<string, () => void> = {
   },
   "cancel-text": () => closeComposer(),
   "add-note": () => void addNote(),
+  import: () => pickImage(),
   "note-text": () => void editNoteText(),
 };
 
