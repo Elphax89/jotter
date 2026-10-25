@@ -1,5 +1,5 @@
 import type { Board } from "./board";
-import type { ShapeKind, Tool } from "./types";
+import type { ShapeKind, Tool, View } from "./types";
 
 export interface Brush {
   tool: Tool;
@@ -44,6 +44,11 @@ interface Ptr {
 type Mode = "idle" | "draw" | "shape" | "text" | "gesture" | "pan";
 
 const TAP_MS = 350;
+/** max gap between the two halves of a 2-/3-finger double tap */
+const DOUBLE_MS = 450;
+/** twist (rad) before two fingers start turning the sheet, and snap range to 0/90/180/270° */
+const TURN_START = (12 * Math.PI) / 180;
+const TURN_SNAP = (4 * Math.PI) / 180;
 /** holding still this long on a drawn mark (pen / shape tool) picks it up */
 const HOLD_MS = 450;
 const HOLD_SLOP = 6;
@@ -57,7 +62,7 @@ const PEN_KEY = "jotter.penSeen";
 /**
  * Pointer handling:
  * - 1 finger / mouse / stylus → draw with the current tool
- * - 2 fingers → pinch-zoom & pan; quick 2-finger tap = undo, 3-finger tap = redo
+ * - 2 fingers → pinch-zoom, pan and turn; 2-finger double tap = undo, 3-finger double tap = redo
  * - once a stylus is seen, fingers only navigate (palm rejection)
  * - mouse: wheel pans, Ctrl/⌘+wheel or trackpad pinch zooms, middle button / Space drags
  */
@@ -75,7 +80,11 @@ export function attachInput(stage: HTMLElement, deps: InputDeps) {
   let penSeen = readFlag();
 
   let chord: { max: number; t0: number; moved: boolean } | null = null;
-  let gest: { ids: number[]; cx: number; cy: number; d: number; v: { x: number; y: number; z: number } } | null = null;
+  let gest: { ids: number[]; cx: number; cy: number; d: number; ang: number; turn: number | null; v: View } | null = null;
+  /** last quick multi-finger tap, waiting for its second half */
+  let lastTap: { n: number; t: number } | null = null;
+  /** the current gesture zoomed or turned noticeably (so it isn't a tap) */
+  let gestMoved = false;
   let panPtr: { id: number; x: number; y: number } | null = null;
 
   const local = (e: { clientX: number; clientY: number }): [number, number] => [e.clientX - rect.left, e.clientY - rect.top];
@@ -88,27 +97,43 @@ export function attachInput(stage: HTMLElement, deps: InputDeps) {
       gest = null;
       return;
     }
-    const [cx, cy, d] = measure(ids);
-    gest = { ids, cx, cy, d, v: { ...board.view } };
+    const [cx, cy, d, ang] = measure(ids);
+    // A finger joining or leaving restarts the gesture; a turn already under way keeps going without a dead zone.
+    const turning = gest !== null && gest.turn !== null;
+    gest = { ids, cx, cy, d, ang, turn: turning ? 0 : null, v: { ...board.view } };
   }
 
-  function measure(ids: number[]): [number, number, number] {
+  function measure(ids: number[]): [number, number, number, number] {
     const a = ptrs.get(ids[0])!;
     const b = ptrs.get(ids[1] ?? ids[0])!;
-    return [(a.x + b.x) / 2, (a.y + b.y) / 2, Math.hypot(a.x - b.x, a.y - b.y)];
+    return [(a.x + b.x) / 2, (a.y + b.y) / 2, Math.hypot(a.x - b.x, a.y - b.y), Math.atan2(b.y - a.y, b.x - a.x)];
   }
+
+  const wrapAngle = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
 
   function updateGesture() {
     if (!gest) return;
-    const [cx, cy, d] = measure(gest.ids);
+    const [cx, cy, d, ang] = measure(gest.ids);
     const v0 = gest.v;
     if (gest.ids.length === 2 && gest.d > 10) {
       const z = Math.min(8, Math.max(0.2, (v0.z * d) / gest.d));
-      const wx = (gest.cx - v0.x) / v0.z;
-      const wy = (gest.cy - v0.y) / v0.z;
-      board.setView({ x: cx - wx * z, y: cy - wy * z, z });
+      // Turning only starts after a clear twist, so plain pinches never tilt the sheet.
+      const twist = wrapAngle(ang - gest.ang);
+      if (gest.turn === null && Math.abs(twist) > TURN_START) gest.turn = twist;
+      let a = v0.a ?? 0;
+      if (gest.turn !== null) {
+        a = wrapAngle(a + twist - gest.turn);
+        const q = Math.round(a / (Math.PI / 2)) * (Math.PI / 2);
+        if (Math.abs(a - q) < TURN_SNAP) a = q;
+      }
+      if (Math.abs(z / v0.z - 1) > 0.06 || gest.turn !== null) gestMoved = true;
+      // keep the world point that was under the fingers' midpoint at the start under it now
+      const [wx, wy] = board.toWorld(gest.cx, gest.cy, v0);
+      const view = { x: 0, y: 0, z, a };
+      const [px, py] = board.toScreen(wx, wy, view);
+      board.setView({ ...view, x: cx - px, y: cy - py });
     } else {
-      board.setView({ x: v0.x + cx - gest.cx, y: v0.y + cy - gest.cy, z: v0.z });
+      board.setView({ ...v0, x: v0.x + cx - gest.cx, y: v0.y + cy - gest.cy });
     }
   }
 
@@ -214,7 +239,10 @@ export function attachInput(stage: HTMLElement, deps: InputDeps) {
 
     if (type === "touch") {
       const n = touches().length;
-      if (n === 1) chord = { max: 1, t0: e.timeStamp, moved: false };
+      if (n === 1) {
+        chord = { max: 1, t0: e.timeStamp, moved: false };
+        gestMoved = false;
+      }
       else if (chord) chord.max = Math.max(chord.max, n);
 
       if (n >= 2) {
@@ -321,10 +349,14 @@ export function attachInput(stage: HTMLElement, deps: InputDeps) {
     if (p.type === "touch" && touches().length === 0 && chord) {
       const c = chord;
       chord = null;
-      if (!cancelled && !c.moved && e.timeStamp - c.t0 < TAP_MS) {
+      // Undo / redo need a double tap: two quick, still 2- (or 3-) finger taps in a row.
+      const tap = !cancelled && !c.moved && !gestMoved && c.max >= 2 && c.max <= 3 && e.timeStamp - c.t0 < TAP_MS;
+      if (!tap) lastTap = null;
+      else if (lastTap && lastTap.n === c.max && c.t0 - lastTap.t < DOUBLE_MS) {
+        lastTap = null;
         if (c.max === 2) deps.onUndo();
-        else if (c.max === 3) deps.onRedo();
-      }
+        else deps.onRedo();
+      } else lastTap = { n: c.max, t: e.timeStamp };
     }
   };
   stage.addEventListener("pointerup", release);

@@ -13,6 +13,7 @@ import {
   hitMark,
   markFrame,
   shapeBox,
+  ROTATABLE,
   textBBox,
   transformMark,
   union,
@@ -224,18 +225,37 @@ export class Board {
 
   // ---------------------------------------------------------------- view
 
-  toWorld(sx: number, sy: number): [number, number] {
-    const v = this.view;
-    return [(sx - v.x) / v.z, (sy - v.y) / v.z];
+  toWorld(sx: number, sy: number, v: View = this.view): [number, number] {
+    const a = v.a ?? 0;
+    const dx = sx - v.x;
+    const dy = sy - v.y;
+    if (!a) return [dx / v.z, dy / v.z];
+    const c = Math.cos(a);
+    const s = Math.sin(a);
+    return [(c * dx + s * dy) / v.z, (-s * dx + c * dy) / v.z];
+  }
+
+  toScreen(wx: number, wy: number, v: View = this.view): [number, number] {
+    const a = v.a ?? 0;
+    const c = Math.cos(a) * v.z;
+    const s = Math.sin(a) * v.z;
+    return [v.x + c * wx - s * wy, v.y + s * wx + c * wy];
   }
 
   get zoom() {
     return this.view.z;
   }
 
+  /** View rotation in radians. */
+  get angle() {
+    return this.view.a ?? 0;
+  }
+
   setView(v: View) {
     const z = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, v.z));
-    this.view = { x: v.x, y: v.y, z };
+    let a = Math.atan2(Math.sin(v.a ?? 0), Math.cos(v.a ?? 0));
+    if (Math.abs(a) < 1e-4) a = 0;
+    this.view = a ? { x: v.x, y: v.y, z, a } : { x: v.x, y: v.y, z };
     this.sheet.view = { ...this.view };
     this.scheduleViewRender();
     this.onView();
@@ -246,16 +266,41 @@ export class Board {
     const v = this.view;
     const z = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, v.z * factor));
     const k = z / v.z;
-    this.setView({ x: sx - (sx - v.x) * k, y: sy - (sy - v.y) * k, z });
+    this.setView({ x: sx - (sx - v.x) * k, y: sy - (sy - v.y) * k, z, a: v.a });
   }
 
   panBy(dx: number, dy: number) {
-    this.setView({ x: this.view.x + dx, y: this.view.y + dy, z: this.view.z });
+    this.setView({ ...this.view, x: this.view.x + dx, y: this.view.y + dy });
+  }
+
+  /** Rotate the view to angle `a`, keeping world point under screen (sx, sy) in place. */
+  rotateTo(a: number, sx = this.cssW / 2, sy = this.cssH / 2) {
+    const [wx, wy] = this.toWorld(sx, sy);
+    const v = { ...this.view, a };
+    const [px, py] = this.toScreen(wx, wy, v);
+    this.setView({ ...v, x: v.x + sx - px, y: v.y + sy - py });
+  }
+
+  private spin = 0;
+  /** Turn the sheet back upright around the screen centre (short animation). */
+  resetRotation() {
+    cancelAnimationFrame(this.spin);
+    const from = this.angle;
+    if (!from) return;
+    const t0 = performance.now();
+    const step = () => {
+      const t = Math.min(1, (performance.now() - t0) / 220);
+      const e = 1 - (1 - t) ** 3;
+      this.rotateTo(from * (1 - e));
+      if (t < 1) this.spin = requestAnimationFrame(step);
+      else this.settle();
+    };
+    this.spin = requestAnimationFrame(step);
   }
 
   get isHomeView() {
     const v = this.view;
-    return Math.abs(v.z - 1) < 0.01 && Math.abs(v.x) < 1 && Math.abs(v.y) < 1;
+    return Math.abs(v.z - 1) < 0.01 && Math.abs(v.x) < 1 && Math.abs(v.y) < 1 && !v.a;
   }
 
   /** Reset to 100 %; if the drawing doesn't fit, fit it to the screen instead. */
@@ -277,9 +322,17 @@ export class Board {
   }
 
   private visibleWorld(): BBox {
-    const [x0, y0] = this.toWorld(0, 0);
-    const [x1, y1] = this.toWorld(this.cssW, this.cssH);
-    return { x0, y0, x1, y1 };
+    const pts = [this.toWorld(0, 0), this.toWorld(this.cssW, 0), this.toWorld(0, this.cssH), this.toWorld(this.cssW, this.cssH)];
+    const xs = pts.map((p) => p[0]);
+    const ys = pts.map((p) => p[1]);
+    return { x0: Math.min(...xs), y0: Math.min(...ys), x1: Math.max(...xs), y1: Math.max(...ys) };
+  }
+
+  /** CSS-px affine matrix [a, b, c, d, e, f] of a view. */
+  private static mat(v: View): number[] {
+    const c = Math.cos(v.a ?? 0) * v.z;
+    const s = Math.sin(v.a ?? 0) * v.z;
+    return [c, s, -s, c, v.x, v.y];
   }
 
   private scheduleViewRender() {
@@ -291,10 +344,20 @@ export class Board {
         return;
       }
       // Heavy sheet: move the existing bitmap on the GPU, repaint crisply once idle.
-      const d = this.drawnView;
-      const v = this.view;
-      const k = v.z / d.z;
-      this.ink.style.transform = `matrix(${k},0,0,${k},${v.x - d.x * k},${v.y - d.y * k})`;
+      // screen_new = M(view) · M(drawn)⁻¹ · screen_old
+      const [a, b, c, d, e, f] = Board.mat(this.drawnView);
+      const det = a * d - b * c;
+      const inv = [d / det, -b / det, -c / det, a / det, (c * f - d * e) / det, (b * e - a * f) / det];
+      const [A, B, C, D, E, F] = Board.mat(this.view);
+      const m = [
+        A * inv[0] + C * inv[1],
+        B * inv[0] + D * inv[1],
+        A * inv[2] + C * inv[3],
+        B * inv[2] + D * inv[3],
+        A * inv[4] + C * inv[5] + E,
+        B * inv[4] + D * inv[5] + F,
+      ];
+      this.ink.style.transform = `matrix(${m.join(",")})`;
       this.renderOverlay();
       clearTimeout(this.idleTimer);
       this.idleTimer = window.setTimeout(() => this.fullRender(), 140);
@@ -303,7 +366,9 @@ export class Board {
 
   /** Force a crisp repaint now (e.g. when a gesture ends). */
   settle() {
-    if (this.drawnView.x !== this.view.x || this.drawnView.y !== this.view.y || this.drawnView.z !== this.view.z) {
+    const d = this.drawnView;
+    const v = this.view;
+    if (d.x !== v.x || d.y !== v.y || d.z !== v.z || (d.a ?? 0) !== (v.a ?? 0)) {
       clearTimeout(this.idleTimer);
       this.fullRender();
     }
@@ -329,11 +394,14 @@ export class Board {
   }
 
   private withView(ctx: CanvasRenderingContext2D, fn: () => void) {
-    const v = this.drawnView;
-    const s = this.dpr * v.z;
-    ctx.setTransform(s, 0, 0, s, this.dpr * v.x, this.dpr * v.y);
+    this.applyView(ctx, this.drawnView);
     fn();
     ctx.globalCompositeOperation = "source-over";
+  }
+
+  private applyView(ctx: CanvasRenderingContext2D, v: View) {
+    const [a, b, c, d, e, f] = Board.mat(v).map((n) => n * this.dpr);
+    ctx.setTransform(a, b, c, d, e, f);
   }
 
   fullRender() {
@@ -444,14 +512,36 @@ export class Board {
   // ---------------------------------------------------------------- shapes & text
 
   private preview:
-    | { k: "shape"; kind: ShapeKind; x1: number; y1: number; x2: number; y2: number; c: string; w: number; f: boolean }
+    | { k: "shape"; kind: ShapeKind; x1: number; y1: number; x2: number; y2: number; c: string; w: number; f: boolean; r: number }
     | ({ k: "text" } & TextDraft)
     | { k: "sel"; sel: Selection }
     | { k: "ring"; x: number; y: number; r: number }
     | null = null;
 
   previewShape(kind: ShapeKind, a: [number, number], b: [number, number], color: string, screenWidth: number, fill: boolean) {
-    this.preview = { k: "shape", kind, x1: a[0], y1: a[1], x2: b[0], y2: b[1], c: color, w: screenWidth / this.view.z, f: fill };
+    const w = screenWidth / this.view.z;
+    const rot = this.angle;
+    if (rot && ROTATABLE.includes(kind)) {
+      // On a turned sheet, boxes stay upright on screen: lay them out in screen space, store the counter-rotation.
+      const sa = this.toScreen(a[0], a[1]);
+      const sb = this.toScreen(b[0], b[1]);
+      const scx = (sa[0] + sb[0]) / 2;
+      const scy = (sa[1] + sb[1]) / 2;
+      const [cx, cy] = this.toWorld(scx, scy);
+      const z = this.view.z;
+      this.preview = {
+        k: "shape",
+        kind,
+        x1: cx + (sa[0] - scx) / z,
+        y1: cy + (sa[1] - scy) / z,
+        x2: cx + (sb[0] - scx) / z,
+        y2: cy + (sb[1] - scy) / z,
+        c: color,
+        w,
+        f: fill,
+        r: -rot,
+      };
+    } else this.preview = { k: "shape", kind, x1: a[0], y1: a[1], x2: b[0], y2: b[1], c: color, w, f: fill, r: 0 };
     this.renderOverlay();
   }
 
@@ -461,7 +551,8 @@ export class Board {
     if (!p || p.k !== "shape") return this.renderOverlay();
     const dist = Math.hypot(p.x2 - p.x1, p.y2 - p.y1) * this.view.z;
     if (dist >= 3) {
-      const mark: Mark = { k: p.kind, c: p.c, w: p.w, x1: p.x1, y1: p.y1, x2: p.x2, y2: p.y2, b: shapeBox(p.kind, p.x1, p.y1, p.x2, p.y2, p.w) };
+      const mark: Mark = { k: p.kind, c: p.c, w: p.w, x1: p.x1, y1: p.y1, x2: p.x2, y2: p.y2, b: shapeBox(p.kind, p.x1, p.y1, p.x2, p.y2, p.w, p.r) };
+      if (p.r) mark.r = p.r;
       if (p.f && !OPEN_SHAPES.includes(p.kind)) mark.f = 1;
       this.withView(this.ictx, () => drawMarks(this.ictx, [mark], null));
       this.addMark(mark);
@@ -514,8 +605,13 @@ export class Board {
   textScreenRect(i: number): { x: number; y: number; w: number; h: number } | null {
     const m = this.sheet.marks[i];
     if (!m) return null;
-    const v = this.view;
-    return { x: m.b.x0 * v.z + v.x, y: m.b.y0 * v.z + v.y, w: (m.b.x1 - m.b.x0) * v.z, h: (m.b.y1 - m.b.y0) * v.z };
+    const b = m.b;
+    const pts = [this.toScreen(b.x0, b.y0), this.toScreen(b.x1, b.y0), this.toScreen(b.x0, b.y1), this.toScreen(b.x1, b.y1)];
+    const xs = pts.map((p) => p[0]);
+    const ys = pts.map((p) => p[1]);
+    const x = Math.min(...xs);
+    const y = Math.min(...ys);
+    return { x, y, w: Math.max(...xs) - x, h: Math.max(...ys) - y };
   }
 
   /** Pick a placed text up for editing; returns its draft (or null if `i` is not a text). */
@@ -552,7 +648,7 @@ export class Board {
       a: f.a0 + sel.r,
       ew: Math.max(f.hw * sel.k, 10 * u) + pad,
       eh: Math.max(f.hh * sel.k, 10 * u) + pad,
-      side: cy * this.view.z + this.view.y < 110 ? 1 : -1,
+      side: this.toScreen(cx, cy)[1] < 110 ? 1 : -1,
       u,
     };
   }
@@ -615,9 +711,8 @@ export class Board {
 
   /** Where the rotate handle sits relative to the box: above, or below when there is no room above. */
   private handleSide(d: TextDraft) {
-    const { h } = draftBox(d);
-    const cy = (d.y + h / 2) * this.view.z + this.view.y;
-    return cy < 90 ? 1 : -1;
+    const { w, h } = draftBox(d);
+    return this.toScreen(d.x + w / 2, d.y + h / 2)[1] < 90 ? 1 : -1;
   }
 
   /** Which part of the draft is under a screen point: its rotate handle, its body, or nothing. */
@@ -718,9 +813,8 @@ export class Board {
     }
     if (!p) return;
     const v = this.view;
-    const s = this.dpr * v.z;
-    ctx.setTransform(s, 0, 0, s, this.dpr * v.x, this.dpr * v.y);
-    if (p.k === "shape") drawShape(ctx, p.kind, p.x1, p.y1, p.x2, p.y2, p.c, p.w, p.f);
+    this.applyView(ctx, v);
+    if (p.k === "shape") drawShape(ctx, p.kind, p.x1, p.y1, p.x2, p.y2, p.c, p.w, p.f, p.r);
     else if (p.k === "text") {
       const u = 1 / v.z;
       const { w, h } = draftBox(p);

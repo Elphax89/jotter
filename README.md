@@ -21,7 +21,7 @@ Free, no account, no ads. Works offline, installs like an app, and everything st
 - ✋ **Hold to edit**: hold any text, stroke, shape or note to move, rotate, recolour, resize or delete it
 - 🧽 **Eraser**
 - 🎨 14 ink colours + custom, 5 paper colours + custom
-- 🔍 **Pinch to zoom and pan** with two fingers. The drawing never stretches when you rotate the phone.
+- 🔍 **Pinch to zoom, pan and turn** with two fingers. The drawing never stretches when you rotate the phone.
 - 📚 **Save and open sheets**: Open, Save (overwrite), Save as (new copy), Rename. Grid or list view with name and date, sortable and searchable.
 - 🛟 **Nothing gets lost**: unsaved work is kept in the background and restored after a reload
 - ⚙️ **Settings**: autosave, start in full screen, language, palm rejection
@@ -75,8 +75,9 @@ Jotter switches to full screen with your first tap (Settings → “Start app in
 |---|---|
 | 1 finger / pen / mouse | draw |
 | 2 fingers drag / pinch | pan / zoom |
-| 2-finger tap | undo |
-| 3-finger tap | redo |
+| 2 fingers twist | turn the sheet (snaps to 0°, 90°, 180°, 270°); tap the angle at the top to straighten it |
+| 2-finger double tap | undo |
+| 3-finger double tap | redo |
 | Tap the active tool again | its options (size, shape) |
 | Stylus detected | fingers stop drawing and only zoom and pan (palm rejection). Toggle in Settings. |
 

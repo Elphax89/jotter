@@ -4,7 +4,7 @@ import { t, translateDom, LANG } from "./i18n";
 import { attachInput, isTyping, type Brush } from "./input";
 import { NOTE_COLORS, draftBox, loadImages, noteBBox, renderRegion, resizeText, retext, union } from "./render";
 import { clearRecovery, deleteSheet, listSheets, loadRecovery, loadSheet, newId, newSheet, persist, putRecovery, readPref, renameSheet, requestPersistence, writePref } from "./store";
-import { OPEN_SHAPES, type BBox, type ShapeKind, type Sheet, type SheetMeta, type Selection, type TextDraft, type Tool } from "./types";
+import { OPEN_SHAPES, type BBox, type Mark, type ShapeKind, type Sheet, type SheetMeta, type Selection, type TextDraft, type Tool } from "./types";
 
 // ------------------------------------------------------------------ palette
 
@@ -379,8 +379,12 @@ function sync() {
 }
 
 function syncZoom() {
-  const chip = $('[data-act="fit"]');
-  chip.hidden = board.isHomeView;
+  const deg = Math.round((board.angle * 180) / Math.PI);
+  const turned = board.angle !== 0;
+  $("#angle-chip").hidden = !turned;
+  $("#angle-label").textContent = `${deg}°`;
+  // While turned at 100 %, the angle chip alone is enough.
+  $('[data-act="fit"]').hidden = board.isHomeView || (turned && Math.abs(board.zoom - 1) < 0.01);
   $("#zoom-label").textContent = `${Math.round(board.zoom * 100)}%`;
 }
 
@@ -733,7 +737,10 @@ async function addNote() {
   const [cx, cy] = board.toWorld(board.size.w / 2, board.size.h / 2);
   const x = cx - w / 2;
   const y = cy - h / 2;
-  const i = board.add({ k: "note", c: NOTE_COLORS[0], x, y, w, h, s: 17 / z, title: res.title, t: res.t, b: noteBBox(x, y, w, h) });
+  const r = -board.angle;
+  const note: Mark = { k: "note", c: NOTE_COLORS[0], x, y, w, h, s: 17 / z, title: res.title, t: res.t, b: noteBBox(x, y, w, h, r) };
+  if (r) note.r = r;
+  const i = board.add(note);
   const sel = board.beginSelect(i);
   if (!sel) return;
   previewSel(sel);
@@ -790,7 +797,9 @@ async function importImage(file: Blob) {
   const [cx, cy] = board.toWorld(board.size.w / 2, board.size.h / 2);
   const x = cx - w / 2;
   const y = cy - h / 2;
-  const m = { k: "img" as const, c: "#000000", src: pic.src, x, y, w, h, b: noteBBox(x, y, w, h) };
+  const r = -board.angle;
+  const m: Mark = { k: "img", c: "#000000", src: pic.src, x, y, w, h, b: noteBBox(x, y, w, h, r) };
+  if (r) m.r = r;
   await loadImages([m]);
   const i = board.add(m);
   const sel = board.beginSelect(i);
@@ -840,7 +849,7 @@ function showBar(mode: "text-new" | "text-edit" | "mark") {
  * The on-screen keyboard only comes up when the text field itself is tapped (or with a mouse).
  */
 function openComposer(at: [number, number], focus = false) {
-  previewDraft({ x: at[0], y: at[1], r: 0, t: "", c: state.color, s: state.sizes.text / board.zoom });
+  previewDraft({ x: at[0], y: at[1], r: -board.angle, t: "", c: state.color, s: state.sizes.text / board.zoom });
   composerInput.value = "";
   showBar("text-new");
   if (focus) composerInput.focus({ preventScroll: true });
@@ -1568,6 +1577,7 @@ const actions: Record<string, () => void> = {
   },
   "cancel-text": () => closeComposer(),
   "add-note": () => void addNote(),
+  unrotate: () => board.resetRotation(),
   import: () => pickImage(),
   "note-text": () => void editNoteText(),
 };

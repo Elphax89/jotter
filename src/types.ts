@@ -96,6 +96,8 @@ export interface View {
   y: number;
   /** zoom factor */
   z: number;
+  /** rotation in radians (screen = R(a)·z·world + (x, y)); missing = 0 */
+  a?: number;
 }
 
 export interface Sheet {
