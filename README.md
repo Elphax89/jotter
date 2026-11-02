@@ -87,6 +87,7 @@ Jotter switches to full screen with your first tap (Settings → “Start app in
 
 - **iPhone / iPad (Safari):** Share → “Add to Home Screen”
 - **Android (Chrome):** Jotter Settings → “Install as app”, or Chrome menu → “Install app”
+- **Samsung Internet:** installing currently triggers a misleading Play Protect warning (“built for an older version of Android”); this is a [known Samsung Internet issue](https://intercom.help/progressier/en/articles/14648382-pwa-installation-on-samsung-internet-is-currently-broken), not Jotter. Install from Chrome instead, or keep the home-screen shortcut, which works offline too.
 - **Desktop (Chrome / Edge):** install icon in the address bar
 
 ## Privacy

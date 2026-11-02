@@ -1458,7 +1458,10 @@ function setChrome(off: boolean) {
 let installEvent: (Event & { prompt(): Promise<void> }) | null = null;
 const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
 const standalone = matchMedia("(display-mode: standalone)").matches || (navigator as { standalone?: boolean }).standalone === true;
-$("#set-install").hidden = !(isIOS && !standalone);
+// Samsung Internet's own "install" currently trips a Play Protect warning ("built for an older
+// version of Android"), so there we point people to Chrome instead of triggering it.
+const isSamsung = /SamsungBrowser/i.test(navigator.userAgent);
+$("#set-install").hidden = !((isIOS || isSamsung) && !standalone);
 window.addEventListener("beforeinstallprompt", (e) => {
   e.preventDefault();
   installEvent = e as typeof installEvent;
@@ -1569,7 +1572,8 @@ const actions: Record<string, () => void> = {
   download: () => void downloadImage(),
   install: async () => {
     closePops();
-    if (installEvent) {
+    if (isSamsung) toast(t.samsungInstall, 9000);
+    else if (installEvent) {
       await installEvent.prompt();
       installEvent = null;
       $("#set-install").hidden = true;
